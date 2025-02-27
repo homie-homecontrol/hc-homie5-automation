@@ -1,6 +1,11 @@
 # Build Stage
 FROM rust:1.82-bullseye AS builder
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install libc runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends libc-bin && rm -rf /var/lib/apt/lists/*
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev lua5.4 liblua5.4-dev pkg-config && \
