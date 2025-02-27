@@ -1,0 +1,8 @@
+max_width = 120
+fn_call_width = 120
+wrap_comments = false  # Avoid wrapping comments unnecessarily.
+struct_lit_multiline = false # Avoid multi-line struct literals unless necessary.
+
+# Control how chain calls are formatted.
+combine_control_flow_and_block = true
+chain_indent = "Block"

@@ -1,0 +1,1361 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Rule",
+    "description": "A rule for hc-homie5-automation, including its human-readable name, triggers, and actions.",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "The human-readable name of the rule, used for debugging purposes."
+        },
+        "triggers": {
+            "type": "array",
+            "description": "An array of trigger configurations that define when the rule should fire.",
+            "items": {
+                "$ref": "#/definitions/RuleTrigger"
+            }
+        },
+        "actions": {
+            "type": "array",
+            "description": "An array of action configurations to be executed when the rule triggers.",
+            "items": {
+                "$ref": "#/definitions/RuleAction"
+            }
+        }
+    },
+    "required": ["name", "triggers", "actions"],
+    "additionalProperties": false,
+    "definitions": {
+        "RuleTrigger": {
+            "type": "object",
+            "description": "A trigger configuration. The actual structure depends on the trigger type (e.g., subject triggered, schedule, timer, etc.).",
+            "oneOf": [
+                {
+                    "title": "SubjectTriggered",
+                    "type": "object",
+                    "description": "Activates when one or multiple specified properties publish a value matching a trigger_value.",
+                    "properties": {
+                        "subjects": {
+                            "type": "array",
+                            "description": "Defines the properties subject to this trigger.",
+                            "items": { "$ref": "#/definitions/Subject" },
+                            "default": []
+                        },
+                        "queries": {
+                            "type": "array",
+                            "description": "Queries matching properties for this trigger.",
+                            "items": { "$ref": "#/definitions/QueryDefinition" },
+                            "default": []
+                        },
+                        "trigger_value": {
+                            "$ref": "#/definitions/ValueConditionHomieValue",
+                            "description": "The value condition that needs to match the property value."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["trigger_value"],
+                    "additionalProperties": false,
+                    "not": {
+                        "anyOf": [
+                            { "required": ["changed"] },
+                            { "required": ["timer_id"] },
+                            { "required": ["schedule"] },
+                            { "required": ["topic"] },
+                            { "required": ["sun_phase"] },
+                            { "required": ["set_value"] }
+                        ]
+                    }
+                },
+                {
+                    "title": "SubjectChanged",
+                    "type": "object",
+                    "description": "Activates when one or multiple property values change, optionally restricted by a from/to condition.",
+                    "properties": {
+                        "subjects": {
+                            "type": "array",
+                            "description": "Defines the properties subject to this trigger.",
+                            "items": { "$ref": "#/definitions/Subject" },
+                            "default": []
+                        },
+                        "queries": {
+                            "type": "array",
+                            "description": "Queries matching properties for this trigger.",
+                            "items": { "$ref": "#/definitions/QueryDefinition" },
+                            "default": []
+                        },
+                        "changed": {
+                            "$ref": "#/definitions/ChangedTrigger",
+                            "description": "Specifies the change condition, with optional 'from' and 'to' value conditions."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["changed"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "TimerTrigger",
+                    "type": "object",
+                    "description": "Triggered when a predefined timer expires.",
+                    "properties": {
+                        "timer_id": {
+                            "type": "string",
+                            "description": "Identifier for the timer."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["timer_id"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "CronTrigger",
+                    "type": "object",
+                    "description": "Triggered at specified times using CRON syntax.",
+                    "properties": {
+                        "schedule": {
+                            "type": "string",
+                            "description": "A CRON expression that defines when the trigger fires."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["schedule"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "MqttTrigger",
+                    "type": "object",
+                    "description": "Triggered by specific MQTT messages.",
+                    "properties": {
+                        "topic": {
+                            "type": "string",
+                            "description": "The MQTT topic to subscribe to."
+                        },
+                        "skip_retained": {
+                            "type": "boolean",
+                            "description": "Do not trigger if the value was a retained message.",
+                            "default": false
+                        },
+                        "skip_duplicated": {
+                            "type": "boolean",
+                            "description": "Do not trigger if the packet is marked as duplicate.",
+                            "default": false
+                        },
+                        "check_qos": {
+                            "type": "boolean",
+                            "description": "Check the QoS of the published packet against the subscription.",
+                            "default": false
+                        },
+                        "qos": {
+                            "$ref": "#/definitions/QoS",
+                            "description": "The Quality of Service level used for subscription."
+                        },
+                        "trigger_value": {
+                            "$ref": "#/definitions/ValueConditionString",
+                            "description": "The value condition that must match the MQTT message payload."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["topic", "trigger_value"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "SolarEventTriggerAfter",
+                    "type": "object",
+                    "description": "Triggered after a specified solar event by a minimum duration.",
+                    "properties": {
+                        "sun_phase": {
+                            "$ref": "#/definitions/SolarPhase",
+                            "description": "The solar phase (e.g., sunrise, sunset) for the trigger."
+                        },
+                        "min_after": {
+                            "$ref": "#/definitions/Duration",
+                            "description": "Minimum duration after the solar event before the trigger fires."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["sun_phase", "min_after"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "SolarEventTriggerBefore",
+                    "type": "object",
+                    "description": "Triggered before a specified solar event by a minimum duration.",
+                    "properties": {
+                        "sun_phase": {
+                            "$ref": "#/definitions/SolarPhase",
+                            "description": "The solar phase (e.g., sunrise, sunset) for the trigger."
+                        },
+                        "min_before": {
+                            "$ref": "#/definitions/Duration",
+                            "description": "Minimum duration before the solar event when the trigger fires."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["sun_phase", "min_before"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "SolarEventTrigger",
+                    "type": "object",
+                    "description": "Triggered exactly at a specified solar event.",
+                    "properties": {
+                        "sun_phase": {
+                            "$ref": "#/definitions/SolarPhase",
+                            "description": "The solar phase for the trigger."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["sun_phase"],
+                    "additionalProperties": false,
+                    "not": {
+                        "anyOf": [{ "required": ["min_after"] }, { "required": ["min_before"] }]
+                    }
+                },
+                {
+                    "title": "OnSetEventTrigger",
+                    "type": "object",
+                    "description": "Triggered when a value is published under the '../set' topic of a virtual device's property.",
+                    "properties": {
+                        "subjects": {
+                            "type": "array",
+                            "description": "Defines the properties subject to this trigger.",
+                            "items": { "$ref": "#/definitions/Subject" },
+                            "default": []
+                        },
+                        "queries": {
+                            "type": "array",
+                            "description": "Queries matching properties for this trigger.",
+                            "items": { "$ref": "#/definitions/QueryDefinition" },
+                            "default": []
+                        },
+                        "set_value": {
+                            "$ref": "#/definitions/ValueConditionString",
+                            "description": "The value condition that must match the raw string published on the set topic."
+                        },
+                        "while": {
+                            "$ref": "#/definitions/WhileConditionSet",
+                            "description": "Additional conditions that must be true while evaluating the trigger."
+                        }
+                    },
+                    "required": ["set_value"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "RuleAction": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "set"
+                        },
+                        "target": {
+                            "$ref": "#/definitions/Subject"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/HomieValue"
+                        },
+                        "timer": {
+                            "$ref": "#/definitions/TimerDef"
+                        }
+                    },
+                    "required": ["type", "target", "value"],
+                    "additionalProperties": false,
+                    "description": "Set action: sets a property to a given HomieValue, optionally using a timer."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "map_set"
+                        },
+                        "target": {
+                            "$ref": "#/definitions/Subject"
+                        },
+                        "mapping": {
+                            "$ref": "#/definitions/ValueMappingList_MapSetFrom_HomieValue"
+                        },
+                        "timer": {
+                            "$ref": "#/definitions/TimerDef"
+                        }
+                    },
+                    "required": ["type", "target", "mapping"],
+                    "additionalProperties": false,
+                    "description": "MapSet action: maps an input value to a new HomieValue based on a predefined mapping, optionally using a timer."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "toggle"
+                        },
+                        "target": {
+                            "$ref": "#/definitions/Subject"
+                        }
+                    },
+                    "required": ["type", "target"],
+                    "additionalProperties": false,
+                    "description": "Toggle action: toggles a boolean property."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "run"
+                        },
+                        "script": {
+                            "type": "string",
+                            "description": "Lua script to execute."
+                        },
+                        "timer": {
+                            "$ref": "#/definitions/TimerDef"
+                        }
+                    },
+                    "required": ["type", "script"],
+                    "additionalProperties": false,
+                    "description": "Run action: executes a Lua script, optionally using a timer."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "timer"
+                        },
+                        "timer": {
+                            "$ref": "#/definitions/TimerDef"
+                        }
+                    },
+                    "required": ["type", "timer"],
+                    "additionalProperties": false,
+                    "description": "Timer action: creates a timer with the specified definition."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "cancel_timer"
+                        },
+                        "timer_id": {
+                            "type": "string",
+                            "description": "Identifier for the timer to cancel."
+                        }
+                    },
+                    "required": ["type", "timer_id"],
+                    "additionalProperties": false,
+                    "description": "CancelTimer action: cancels a timer by its id."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "mqtt"
+                        },
+                        "topic": {
+                            "type": "string",
+                            "description": "The MQTT topic to publish to."
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "The value to publish."
+                        },
+                        "qos": {
+                            "$ref": "#/definitions/QoS"
+                        },
+                        "retain": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Indicates whether the message should be retained."
+                        }
+                    },
+                    "required": ["type", "topic", "value"],
+                    "additionalProperties": false,
+                    "description": "MQTT action: publishes a message to an MQTT topic."
+                }
+            ],
+            "description": "An action configuration. The actual structure depends on the action type (set, map_set, toggle, run, timer, cancel_timer, mqtt)."
+        },
+        "TimerDef": {
+            "type": "object",
+            "description": "Defines a timer with an identifier, a duration, an optional repeat interval, a triggerbound flag, and an optional cancel condition.",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "A unique identifier for the timer."
+                },
+                "duration": {
+                    "$ref": "#/definitions/Duration"
+                },
+                "repeat": {
+                    "$ref": "#/definitions/Duration",
+                    "description": "An optional duration string representing the repeat interval for the timer."
+                },
+                "triggerbound": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, the timer id will be modified by appending the triggering property id."
+                },
+                "cancelcondition": {
+                    "$ref": "#/definitions/ValueConditionHomieValue",
+                    "description": "An optional condition that, if met, cancels the timer."
+                }
+            },
+            "required": ["id", "duration", "triggerbound"],
+            "additionalProperties": false
+        },
+        "MapSetFrom": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "HomieValue": {
+                            "$ref": "#/definitions/HomieValue"
+                        }
+                    },
+                    "required": ["HomieValue"],
+                    "additionalProperties": false,
+                    "description": "A MapSetFrom value represented as a HomieValue."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "String": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["String"],
+                    "additionalProperties": false,
+                    "description": "A MapSetFrom value represented as a String."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "SolarPhase": {
+                            "$ref": "#/definitions/SolarPhase"
+                        }
+                    },
+                    "required": ["SolarPhase"],
+                    "additionalProperties": false,
+                    "description": "A MapSetFrom value represented as a SolarPhase."
+                }
+            ],
+            "description": "A value that can be either a HomieValue, a String, or a SolarPhase."
+        },
+        "ValueConditionMapSetFrom": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/MapSetFrom",
+                    "description": "A direct MapSetFrom value for comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for MapSetFrom values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/MapSetFrom",
+                                    "description": "A single MapSetFrom value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/MapSetFrom"
+                                    },
+                                    "description": "An array of MapSetFrom values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for MapSetFrom values."
+        },
+        "ValueMapping_MapSetFrom_HomieValue": {
+            "type": "object",
+            "description": "A mapping entry from a MapSetFrom value condition to a HomieValue.",
+            "properties": {
+                "from": {
+                    "$ref": "#/definitions/ValueConditionMapSetFrom",
+                    "description": "An optional condition that, if specified and matching, triggers this mapping. If omitted, it acts as a catch-all."
+                },
+                "to": {
+                    "$ref": "#/definitions/HomieValue",
+                    "description": "The HomieValue output for this mapping."
+                }
+            },
+            "required": ["to"],
+            "additionalProperties": false
+        },
+        "ValueMappingList_MapSetFrom_HomieValue": {
+            "type": "array",
+            "description": "A list of mappings from MapSetFrom values to HomieValue outputs.",
+            "items": {
+                "$ref": "#/definitions/ValueMapping_MapSetFrom_HomieValue"
+            }
+        },
+
+        "Subject": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "anyOf": [
+                        {
+                            "pattern": "^[a-z0-9\\-]+/[a-z0-9\\-]+/[a-z0-9\\-]+$"
+                        },
+                        {
+                            "pattern": "^[^/]+/[a-z0-9\\-]+/[a-z0-9\\-]+/[a-z0-9\\-]+$"
+                        }
+                    ],
+                    "description": "A topic-like notation for a Homie property. Either 'device/node/property' (with device, node, and property following the HomieID pattern) or 'homie_domain/device/node/property'."
+                },
+                {
+                    "type": "object",
+                    "description": "An object representation for a Homie property. The 'homie_domain' is optional; if omitted, the configured homie_domain is used.",
+                    "properties": {
+                        "homie_domain": {
+                            "type": "string",
+                            "description": "The Homie domain"
+                        },
+                        "device_id": { "$ref": "#/definitions/HomieID" },
+                        "node_id": { "$ref": "#/definitions/HomieID" },
+                        "prop_id": { "$ref": "#/definitions/HomieID" }
+                    },
+                    "required": ["device_id", "node_id", "prop_id"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ValueConditionHomieValue": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/HomieValue",
+                    "description": "A simple Homie value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for Homie values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/HomieValue",
+                                    "description": "A single Homie value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": { "$ref": "#/definitions/HomieValue" },
+                                    "description": "An array of Homie values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ValueConditionString": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "A simple string value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for string values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "description": "A single string value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "description": "An array of string values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that don't require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "HomieValue": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "description": "String",
+                    "properties": {
+                        "String": {
+                            "type": "string",
+                            "description": "A string value (e.g., String: \"open\")."
+                        }
+                    },
+                    "required": ["String"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Integer": {
+                            "type": "integer",
+                            "description": "An integer value (e.g., Integer: 42)."
+                        }
+                    },
+                    "required": ["Integer"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Float": {
+                            "type": "number",
+                            "description": "A floating point value (e.g., Float: 3.14)."
+                        }
+                    },
+                    "required": ["Float"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Bool": {
+                            "type": "boolean",
+                            "description": "A boolean value (e.g., Bool: true)."
+                        }
+                    },
+                    "required": ["Bool"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Enum": {
+                            "type": "string",
+                            "description": "An enumerated value (e.g., Enum: \"toggle\")."
+                        }
+                    },
+                    "required": ["Enum"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Color": {
+                            "type": "string",
+                            "pattern": "^(?:rgb,\\d{1,3},\\d{1,3},\\d{1,3}|hsv,\\d{1,3},\\d{1,3},\\d{1,3}|xyz,\\d*\\.?\\d+,\\d*\\.?\\d+)$",
+                            "description": "A color value in a supported format. Must match one of the following patterns: <br/> • rgb,<i>r</i>,<i>g</i>,<i>b</i> (three integers, e.g., rgb,100,120,110) <br/> • hsv,<i>h</i>,<i>s</i>,<i>v</i> (three integers, e.g., hsv,120,100,100) <br/> • xyz,<i>x</i>,<i>y</i> (two numbers, e.g., xyz,0.25,0.34)"
+                        }
+                    },
+                    "required": ["Color"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "DateTime": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+                            "description": "A datetime value in ISO 8601 format (e.g., DateTime: \"2024-10-08T10:15:30Z\"). Fractional seconds are optional."
+                        }
+                    },
+                    "required": ["DateTime"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Duration": {
+                            "type": "string",
+                            "pattern": "^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$",
+                            "description": "A duration value in ISO 8601 format (e.g., Duration: \"PT12H5M46S\")."
+                        }
+                    },
+                    "required": ["Duration"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "JSON": {
+                            "type": "string",
+                            "description": "A JSON string (e.g., JSON: \"{\\\"hello\\\": \\\"world\\\"}\")."
+                        }
+                    },
+                    "required": ["JSON"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "Homie values expressed as an object with a datatype key (String, Integer, Float, Bool, Enum, Color, DateTime, Duration, or JSON)."
+        },
+        "QueryDefinition": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "$ref": "#/definitions/ValueConditionHomieDomain"
+                },
+                "device": {
+                    "$ref": "#/definitions/DeviceQuery"
+                },
+                "node": {
+                    "$ref": "#/definitions/NodeQuery"
+                },
+                "property": {
+                    "$ref": "#/definitions/PropertyQuery"
+                }
+            },
+            "additionalProperties": false
+        },
+        "DeviceQuery": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "name": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "version": {
+                    "$ref": "#/definitions/ValueConditionInteger"
+                },
+                "homie": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "children": {
+                    "$ref": "#/definitions/ValueConditionVecHomieID"
+                },
+                "root": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "parent": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "extensions": {
+                    "$ref": "#/definitions/ValueConditionVecString"
+                }
+            },
+            "additionalProperties": false
+        },
+        "NodeQuery": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "name": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "type": {
+                    "$ref": "#/definitions/ValueConditionString"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PropertyQuery": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "name": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "datatype": {
+                    "$ref": "#/definitions/ValueConditionHomieDataType"
+                },
+                "format": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "settable": {
+                    "$ref": "#/definitions/ValueConditionBoolean"
+                },
+                "retained": {
+                    "$ref": "#/definitions/ValueConditionBoolean"
+                },
+                "unit": {
+                    "$ref": "#/definitions/ValueConditionString"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ValueConditionHomieID": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/HomieID",
+                    "description": "A HomieID value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/HomieID",
+                                    "description": "A single HomieID value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": { "$ref": "#/definitions/HomieID" },
+                                    "description": "An array of HomieIDs."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that don't require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ValueConditionBoolean": {
+            "oneOf": [
+                {
+                    "type": "boolean",
+                    "description": "A simple boolean value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for boolean values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "boolean",
+                                    "description": "A single boolean value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "boolean"
+                                    },
+                                    "description": "An array of boolean values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for boolean values."
+        },
+        "ValueConditionHomieDomain": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "A simple homie domain value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for homie domain values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "description": "A single homie domain value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "description": "An array of homie domain values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that don't require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "HomieDataType": {
+            "type": "string",
+            "enum": ["integer", "float", "boolean", "string", "enum", "color", "datetime", "duration", "json"],
+            "description": "Datatypes in the Homie protocol. Allowed values: 'integer', 'float', 'boolean', 'string', 'enum', 'color', 'datetime', 'duration', or 'json'."
+        },
+        "ValueConditionHomieDataType": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/HomieDataType",
+                    "description": "A direct HomieDataType value for comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for HomieDataType values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/HomieDataType",
+                                    "description": "A single HomieDataType value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": { "$ref": "#/definitions/HomieDataType" },
+                                    "description": "An array of HomieDataType values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for HomieDataType values, allowing either a direct value or an operator-based condition."
+        },
+        "ValueConditionInteger": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "description": "A simple integer value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for integer values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "integer",
+                                    "description": "A single integer value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "integer"
+                                    },
+                                    "description": "An array of integer values."
+                                }
+                            ],
+                            "description": "Optional integer value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for integer values, allowing either a direct value or an operator-based condition."
+        },
+        "ValueConditionVecString": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A direct vector of strings used for comparison."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for a vector of strings.",
+                    "properties": {
+                        "operator": {
+                            "type": "string",
+                            "enum": ["=", "<>", "includesAny", "includesNone", "matchAlways"],
+                            "description": "The comparison operator to apply. Supported operators: '=', '<>', 'includesAny', 'includesNone', and 'matchAlways'."
+                        },
+                        "value": {
+                            "$ref": "#/definitions/ValueSetVecString",
+                            "description": "Optional vector value(s) for comparison."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for a vector of strings. This condition may be specified either as a direct array of strings or as an operator-based condition."
+        },
+        "ValueSetVecString": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "A single vector of strings."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "description": "Multiple vectors of stings."
+                }
+            ],
+            "description": "A value set for vectors of stings, either a single vector or multiple vectors."
+        },
+        "ValueSetVecHomieID": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/HomieID" },
+                    "description": "A single vector of HomieIDs."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/HomieID" }
+                    },
+                    "description": "Multiple vectors of HomieIDs."
+                }
+            ],
+            "description": "A value set for vectors of HomieIDs, either a single vector or multiple vectors."
+        },
+        "ValueConditionVecHomieID": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/HomieID" },
+                    "description": "A direct vector of HomieIDs used for comparison."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for a vector of HomieIDs.",
+                    "properties": {
+                        "operator": {
+                            "type": "string",
+                            "enum": ["=", "<>", "includesAny", "includesNone", "matchAlways"],
+                            "description": "The comparison operator to apply. Supported operators: '=', '<>', 'includesAny', 'includesNone', and 'matchAlways'."
+                        },
+                        "value": {
+                            "$ref": "#/definitions/ValueSetVecHomieID",
+                            "description": "Optional vector value(s) for comparison."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for a vector of HomieIDs. This condition may be specified either as a direct array of HomieIDs or as an operator-based condition."
+        },
+        "WhileConditionSet": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/WhileCondition"
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/WhileCondition"
+                    }
+                }
+            ],
+            "description": "Either a single while condition or an array of while conditions."
+        },
+        "WhileCondition": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/PropertyWhileCondition"
+                },
+                {
+                    "$ref": "#/definitions/TimeWhileCondition"
+                }
+            ],
+            "description": "Either a property while condition or a time while condition."
+        },
+        "PropertyWhileCondition": {
+            "type": "object",
+            "description": "A property while condition that tests the current value of a property.",
+            "properties": {
+                "subject": {
+                    "$ref": "#/definitions/Subject"
+                },
+                "condition": {
+                    "$ref": "#/definitions/ValueConditionHomieValue"
+                }
+            },
+            "required": ["subject", "condition"],
+            "additionalProperties": false
+        },
+        "TimeWhileCondition": {
+            "oneOf": [
+                {
+                    "title": "StandardTimeWhileCondition",
+                    "type": "object",
+                    "description": "Requires all fields: 'after', 'before', and 'weekdays'.",
+                    "properties": {
+                        "after": {
+                            "type": "string",
+                            "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+                            "description": "Time in HH:MM:SS format representing the lower bound."
+                        },
+                        "before": {
+                            "type": "string",
+                            "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+                            "description": "Time in HH:MM:SS format representing the upper bound."
+                        },
+                        "weekdays": {
+                            "type": "array",
+                            "items": { "$ref": "#/definitions/Weekday" },
+                            "description": "An array of weekdays during which the condition applies."
+                        }
+                    },
+                    "required": ["after", "before", "weekdays"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "BeforeTimeWhileCondition",
+                    "type": "object",
+                    "description": "Requires 'before' (and optionally 'weekdays'); 'after' is not allowed.",
+                    "properties": {
+                        "before": {
+                            "type": "string",
+                            "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+                            "description": "Time in HH:MM:SS format representing the upper bound."
+                        },
+                        "weekdays": {
+                            "type": "array",
+                            "items": { "$ref": "#/definitions/Weekday" },
+                            "description": "Optional weekdays during which the condition applies."
+                        }
+                    },
+                    "required": ["before"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "AfterTimeWhileCondition",
+                    "type": "object",
+                    "description": "Requires 'after' (and optionally 'weekdays'); 'before' is not allowed.",
+                    "properties": {
+                        "after": {
+                            "type": "string",
+                            "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+                            "description": "Time in HH:MM:SS format representing the lower bound."
+                        },
+                        "weekdays": {
+                            "type": "array",
+                            "items": { "$ref": "#/definitions/Weekday" },
+                            "description": "Optional weekdays during which the condition applies."
+                        }
+                    },
+                    "required": ["after"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "WeekdaysTimeWhileCondition",
+                    "type": "object",
+                    "description": "Requires only 'weekdays'.",
+                    "properties": {
+                        "weekdays": {
+                            "type": "array",
+                            "items": { "$ref": "#/definitions/Weekday" },
+                            "description": "An array of weekdays during which the condition applies."
+                        }
+                    },
+                    "required": ["weekdays"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A time while condition that can be standard (after, before, weekdays), only before, only after, or just weekdays."
+        },
+        "Weekday": {
+            "type": "string",
+            "enum": ["sun", "mon", "tue", "wed", "thu", "fri", "sat"],
+            "description": "A weekday represented as a three-letter lowercase string."
+        },
+        "ChangedTrigger": {
+            "type": "object",
+            "description": "Specifies the change condition for a trigger, with optional 'from' and 'to' value conditions.",
+            "properties": {
+                "from": {
+                    "$ref": "#/definitions/ValueConditionHomieValue",
+                    "description": "An optional value condition that defines the property's previous value."
+                },
+                "to": {
+                    "$ref": "#/definitions/ValueConditionHomieValue",
+                    "description": "An optional value condition that defines the property's current value."
+                }
+            },
+            "additionalProperties": false
+        },
+
+        "QoS": {
+            "type": "string",
+            "enum": ["AtMostOnce", "AtLeastOnce", "ExactlyOnce"],
+            "description": "Quality of Service level for MQTT."
+        },
+        "SolarPhase": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "enum": [
+                        "sunrise",
+                        "sunset",
+                        "sunriseEnd",
+                        "sunsetStart",
+                        "dawn",
+                        "dusk",
+                        "nauticalDawn",
+                        "nauticalDusk",
+                        "nightEnd",
+                        "night",
+                        "goldenHourEnd",
+                        "goldenHour"
+                    ],
+                    "description": "A solar phase representing one of the predefined phases."
+                },
+                {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "type": "number",
+                            "description": "Angle in degrees of the sun above the horizon (negative for below the horizon)."
+                        },
+                        {
+                            "type": "boolean",
+                            "description": "A flag indicating whether the phase applies to the sun rising (true) or setting (false)."
+                        }
+                    ],
+                    "description": "A custom solar phase represented as a tuple [angle_deg, rise]."
+                }
+            ],
+            "description": "SolarPhase defines various solar events (e.g., sunrise, sunset, etc.) or a custom phase as [angle_deg, rise]."
+        },
+        "Duration": {
+            "type": "string",
+            "pattern": "^[0-9]+(ms|s|m|d)$",
+            "description": "A string representing a duration. Valid examples: '10ms', '5s', '2m', '1d'."
+        },
+        "HomieID": {
+            "type": "string",
+            "pattern": "^(?!-)[a-z0-9\\-]+(?<!-)$",
+            "description": "A HomieID must match the pattern: ^(?!-)[a-z0-9\\-]+(?<!-)$"
+        },
+        "PatternCondition": {
+            "type": "object",
+            "description": "A regex pattern to match against.",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "The regex pattern used for matching."
+                }
+            },
+            "required": ["pattern"],
+            "additionalProperties": false
+        },
+        "ConditionOperator": {
+            "type": "string",
+            "enum": [
+                "=",
+                ">",
+                "<",
+                ">=",
+                "<=",
+                "<>",
+                "includesAny",
+                "includesNone",
+                "matchAlways",
+                "isEmpty",
+                "exists"
+            ],
+            "description": "The comparison operator to apply."
+        }
+    }
+}

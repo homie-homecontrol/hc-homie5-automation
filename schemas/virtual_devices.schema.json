@@ -1,0 +1,1184 @@
+{
+    "$id": "#/definitions/VirtualDeviceSpec",
+    "type": "object",
+    "properties": {
+        "id": { "$ref": "#/definitions/HomieID" },
+        "name": { "type": "string" },
+        "version": { "type": "integer" },
+        "children": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/HomieID" },
+            "default": []
+        },
+        "parent": { "$ref": "#/definitions/HomieID" },
+        "extensions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+        },
+        "nodes": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/VirtualNodeSpec" }
+        }
+    },
+    "required": ["id"],
+    "additionalProperties": false,
+    "definitions": {
+        "HomieID": {
+            "type": "string",
+            "pattern": "^(?!-)[a-z0-9\\-]+(?<!-)$",
+            "description": "A HomieID must match the pattern: ^(?!-)[a-z0-9\\-]+(?<!-)$"
+        },
+
+        "VirtualNodeSpec": {
+            "$id": "#/definitions/VirtualNodeSpec",
+            "type": "object",
+            "properties": {
+                "id": { "$ref": "#/definitions/HomieID" },
+                "name": { "type": "string" },
+                "type": { "type": "string" },
+                "from_smarthome": {
+                    "$ref": "#/definitions/SmarthomeSpec",
+                    "description": "Use predefined homecontrol smarthome node definitions. Valid 'type' values include: button, colorlight, dimmer, lightscene, maintenance, motion, shutter, switch, thermostat, vibration, weather, contact, numeric, orientation, watersensor, tilt."
+                },
+                "pass_through": { "type": "boolean" },
+                "property_opts": { "$ref": "#/definitions/VirtualPropertyOptions" },
+                "properties": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/VirtualPropertySpec" },
+                    "default": []
+                }
+            },
+            "required": ["id"],
+            "additionalProperties": false
+        },
+        "SmarthomeSpec": {
+            "title": "SmarthomeSpec",
+            "description": "Defines the specification for a smarthome node. Valid 'type' values include: button, colorlight, dimmer, lightscene, maintenance, motion, shutter, switch, thermostat, vibration, weather, contact, numeric, orientation, watersensor, tilt.",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "button" },
+                        "config": { "$ref": "#/definitions/ButtonNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "colorlight" },
+                        "config": { "$ref": "#/definitions/ColorlightNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "dimmer" },
+                        "config": { "$ref": "#/definitions/DimmerNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "lightscene" },
+                        "config": { "$ref": "#/definitions/LightSceneNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "maintenance" },
+                        "config": { "$ref": "#/definitions/MaintenanceNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "motion" },
+                        "config": { "$ref": "#/definitions/MotionNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "shutter" },
+                        "config": { "$ref": "#/definitions/ShutterNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "switch" },
+                        "config": { "$ref": "#/definitions/SwitchNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "thermostat" },
+                        "config": { "$ref": "#/definitions/ThermostatNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "vibration" },
+                        "config": { "$ref": "#/definitions/VibrationNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "weather" },
+                        "config": { "$ref": "#/definitions/WeatherNodeConfig" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "contact" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "numeric" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "orientation" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "watersensor" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "tilt" }
+                    },
+                    "required": ["type"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ButtonNodeConfig": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/ButtonNodeActions" }
+                }
+            },
+            "required": ["actions"],
+            "additionalProperties": false
+        },
+        "ButtonNodeActions": {
+            "type": "string",
+            "enum": ["press", "long-press", "double-press", "release", "long-release", "continuous"]
+        },
+        "ColorlightNodeConfig": {
+            "type": "object",
+            "properties": {
+                "settable": { "type": "boolean" },
+                "color_formats": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/ColorFormat" }
+                },
+                "ctmin": { "type": "integer" },
+                "ctmax": { "type": "integer" }
+            },
+            "required": ["settable", "color_formats", "ctmin", "ctmax"],
+            "additionalProperties": false
+        },
+        "ColorFormat": {
+            "type": "string",
+            "enum": ["rgb", "hsv", "xyz"]
+        },
+        "DimmerNodeConfig": {
+            "type": "object",
+            "properties": {
+                "settable": { "type": "boolean" }
+            },
+            "required": ["settable"],
+            "additionalProperties": false
+        },
+        "LightSceneNodeConfig": {
+            "type": "object",
+            "properties": {
+                "scenes": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+                "settable": { "type": "boolean" }
+            },
+            "required": ["scenes", "settable"],
+            "additionalProperties": false
+        },
+        "MaintenanceNodeConfig": {
+            "type": "object",
+            "properties": {
+                "low_battery": { "type": "boolean" },
+                "battery_level": { "type": "boolean" },
+                "reachable": { "type": "boolean" },
+                "last_update": { "type": "boolean" }
+            },
+            "required": ["low_battery", "battery_level", "reachable", "last_update"],
+            "additionalProperties": false
+        },
+        "MotionNodeConfig": {
+            "type": "object",
+            "properties": {
+                "lux": { "type": "boolean" }
+            },
+            "required": ["lux"],
+            "additionalProperties": false
+        },
+        "ShutterNodeConfig": {
+            "type": "object",
+            "properties": {
+                "can_stop": { "type": "boolean" }
+            },
+            "required": ["can_stop"],
+            "additionalProperties": false
+        },
+        "SwitchNodeConfig": {
+            "type": "object",
+            "properties": {
+                "settable": { "type": "boolean" }
+            },
+            "required": ["settable"],
+            "additionalProperties": false
+        },
+        "ThermostatNodeConfig": {
+            "type": "object",
+            "properties": {
+                "unit": { "type": "string" },
+                "valve": { "type": "boolean" },
+                "windowopen": { "type": "boolean" },
+                "boost_state": { "type": "boolean" },
+                "mode": { "type": "boolean" },
+                "modes": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/ThermostatNodeModes" }
+                },
+                "temp_range": { "$ref": "#/definitions/FloatRange" }
+            },
+            "required": ["unit", "valve", "windowopen", "boost_state", "mode", "modes", "temp_range"],
+            "additionalProperties": false
+        },
+        "ThermostatNodeModes": {
+            "type": "string",
+            "enum": [
+                "Off",
+                "Auto",
+                "Manual",
+                "Party",
+                "Boost",
+                "Cool",
+                "Heat",
+                "EmergencyHeating",
+                "Precooling",
+                "FanOnly",
+                "Dry",
+                "Sleep"
+            ]
+        },
+        "FloatRange": {
+            "type": "object",
+            "properties": {
+                "min": { "type": "number" },
+                "max": { "type": "number" },
+                "step": { "type": "number" }
+            },
+            "additionalProperties": false
+        },
+        "VibrationNodeConfig": {
+            "type": "object",
+            "properties": {
+                "vibration_strength": { "type": "boolean" }
+            },
+            "required": ["vibration_strength"],
+            "additionalProperties": false
+        },
+        "WeatherNodeConfig": {
+            "type": "object",
+            "properties": {
+                "temperature": { "type": "boolean" },
+                "humidity": { "type": "boolean" },
+                "pressure": { "type": "boolean" },
+                "temp_unit": { "type": "string" }
+            },
+            "required": ["temperature", "humidity", "pressure", "temp_unit"],
+            "additionalProperties": false
+        },
+        "VirtualPropertyOptions": {
+            "type": "object",
+            "properties": {
+                "read_from_mqtt": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "read_timeout": {
+                    "$ref": "#/definitions/Duration"
+                }
+            },
+            "required": ["read_from_mqtt"],
+            "additionalProperties": false
+        },
+        "Duration": {
+            "type": "string",
+            "pattern": "^[0-9]+(ms|s|m|d)$",
+            "description": "A string representing a duration. Valid examples: '10ms', '5s', '2m', '1d'."
+        },
+        "VirtualPropertySpec": {
+            "type": "object",
+            "properties": {
+                "id": { "$ref": "#/definitions/HomieID" },
+                "name": { "type": "string" },
+                "datatype": { "$ref": "#/definitions/HomieDataType" },
+                "format": { "$ref": "#/definitions/HomiePropertyFormat" },
+                "settable": { "type": "boolean" },
+                "retained": { "type": "boolean" },
+                "unit": { "type": "string" },
+                "pass_through": { "type": "boolean" },
+                "property_opts": { "$ref": "#/definitions/VirtualPropertyOptions" },
+                "compound_spec": { "$ref": "#/definitions/CompoundSpec" }
+            },
+            "required": ["id"],
+            "additionalProperties": false
+        },
+        "HomiePropertyFormat": {
+            "type": "string",
+            "description": "HomiePropertyFormat as string representation"
+        },
+        "IntegerRange": {
+            "type": "object",
+            "properties": {
+                "min": { "type": "integer" },
+                "max": { "type": "integer" },
+                "step": { "type": "integer" }
+            },
+            "additionalProperties": false
+        },
+        "ColorFormat": {
+            "type": "string",
+            "enum": ["rgb", "hsv", "xyz"]
+        },
+        "HomieDataType": {
+            "type": "string",
+            "enum": ["integer", "float", "boolean", "string", "enum", "color", "datetime", "duration", "json"],
+            "description": "Datatypes in the Homie protocol. Allowed values: 'integer', 'float', 'boolean', 'string', 'enum', 'color', 'datetime', 'duration', or 'json'."
+        },
+        "CompoundSpec": {
+            "type": "object",
+            "properties": {
+                "members": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/MemberSpec" }
+                },
+                "mapping": {
+                    "$ref": "#/definitions/ValueMappingIO_HomieValue_HomieValue"
+                },
+                "aggregate_function": {
+                    "$ref": "#/definitions/AggregateFunctionType",
+                    "default": "equal"
+                },
+                "aggregation_debounce": {
+                    "$ref": "#/definitions/Duration"
+                }
+            },
+            "required": ["members"],
+            "additionalProperties": false
+        },
+        "MemberSpec": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/Subject"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "subject": { "$ref": "#/definitions/Subject" },
+                        "mapping": { "$ref": "#/definitions/ValueMappingIO_HomieValue_HomieValue" }
+                    },
+                    "required": ["subject", "mapping"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "mqtt_input": { "$ref": "#/definitions/MqttWrapperChannel_String_HomieValue" },
+                        "mqtt_output": { "$ref": "#/definitions/MqttWrapperChannel_HomieValue_String" }
+                    },
+                    "required": ["mqtt_input"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": { "$ref": "#/definitions/QueryDefinition" },
+                        "mapping": { "$ref": "#/definitions/ValueMappingIO_HomieValue_HomieValue" }
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "MqttWrapperChannel_String_HomieValue": {
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "mapping": { "$ref": "#/definitions/ValueMappingList_String_HomieValue" },
+                "retained": { "type": "boolean", "default": false },
+                "qos": { "$ref": "#/definitions/QoS", "default": 0 }
+            },
+            "required": ["topic", "mapping"],
+            "additionalProperties": false
+        },
+        "MqttWrapperChannel_HomieValue_String": {
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "mapping": { "$ref": "#/definitions/ValueMappingList_HomieValue_String" },
+                "retained": { "type": "boolean", "default": false },
+                "qos": { "$ref": "#/definitions/QoS", "default": 0 }
+            },
+            "required": ["topic", "mapping"],
+            "additionalProperties": false
+        },
+        "AggregateFunctionType": {
+            "type": "string",
+            "enum": ["equal", "or", "and", "nor", "nand", "avg", "avgceil", "max", "min"],
+            "default": "equal"
+        },
+        "ValueMapping_HomieValue_HomieValue": {
+            "type": "object",
+            "properties": {
+                "from": { "$ref": "#/definitions/ValueConditionHomieValue" },
+                "to": { "$ref": "#/definitions/HomieValue" }
+            },
+            "required": ["to"],
+            "additionalProperties": false
+        },
+        "ValueMappingList_HomieValue_HomieValue": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/ValueMapping_HomieValue_HomieValue" }
+        },
+        "ValueMapping_String_HomieValue": {
+            "type": "object",
+            "properties": {
+                "from": { "$ref": "#/definitions/ValueConditionString" },
+                "to": { "$ref": "#/definitions/HomieValue" }
+            },
+            "required": ["to"],
+            "additionalProperties": false
+        },
+        "ValueMappingList_String_HomieValue": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/ValueMapping_String_HomieValue" }
+        },
+        "ValueMapping_HomieValue_String": {
+            "type": "object",
+            "properties": {
+                "from": { "$ref": "#/definitions/ValueConditionHomieValue" },
+                "to": { "type": "string" }
+            },
+            "required": ["to"],
+            "additionalProperties": false
+        },
+        "ValueMappingList_HomieValue_String": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/ValueMapping_HomieValue_String" }
+        },
+        "ValueMappingIO_HomieValue_HomieValue": {
+            "type": "object",
+            "properties": {
+                "input": {
+                    "$ref": "#/definitions/ValueMappingList_HomieValue_HomieValue",
+                    "default": []
+                },
+                "output": {
+                    "$ref": "#/definitions/ValueMappingList_HomieValue_HomieValue",
+                    "default": []
+                }
+            },
+            "additionalProperties": false
+        },
+
+        "Subject": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "anyOf": [
+                        {
+                            "pattern": "^[a-z0-9\\-]+/[a-z0-9\\-]+/[a-z0-9\\-]+$"
+                        },
+                        {
+                            "pattern": "^[^/]+/[a-z0-9\\-]+/[a-z0-9\\-]+/[a-z0-9\\-]+$"
+                        }
+                    ],
+                    "description": "A topic-like notation for a Homie property. Either 'device/node/property' (with device, node, and property following the HomieID pattern) or 'homie_domain/device/node/property'."
+                },
+                {
+                    "type": "object",
+                    "description": "An object representation for a Homie property. The 'homie_domain' is optional; if omitted, the configured homie_domain is used.",
+                    "properties": {
+                        "homie_domain": {
+                            "type": "string",
+                            "description": "The Homie domain"
+                        },
+                        "device_id": { "$ref": "#/definitions/HomieID" },
+                        "node_id": { "$ref": "#/definitions/HomieID" },
+                        "prop_id": { "$ref": "#/definitions/HomieID" }
+                    },
+                    "required": ["device_id", "node_id", "prop_id"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ValueConditionHomieValue": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/HomieValue",
+                    "description": "A simple Homie value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for Homie values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/HomieValue",
+                                    "description": "A single Homie value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": { "$ref": "#/definitions/HomieValue" },
+                                    "description": "An array of Homie values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ValueConditionString": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "A simple string value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for string values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "description": "A single string value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "description": "An array of string values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that don't require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "HomieValue": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "description": "String",
+                    "properties": {
+                        "String": {
+                            "type": "string",
+                            "description": "A string value (e.g., String: \"open\")."
+                        }
+                    },
+                    "required": ["String"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Integer": {
+                            "type": "integer",
+                            "description": "An integer value (e.g., Integer: 42)."
+                        }
+                    },
+                    "required": ["Integer"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Float": {
+                            "type": "number",
+                            "description": "A floating point value (e.g., Float: 3.14)."
+                        }
+                    },
+                    "required": ["Float"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Bool": {
+                            "type": "boolean",
+                            "description": "A boolean value (e.g., Bool: true)."
+                        }
+                    },
+                    "required": ["Bool"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Enum": {
+                            "type": "string",
+                            "description": "An enumerated value (e.g., Enum: \"toggle\")."
+                        }
+                    },
+                    "required": ["Enum"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Color": {
+                            "type": "string",
+                            "pattern": "^(?:rgb,\\d{1,3},\\d{1,3},\\d{1,3}|hsv,\\d{1,3},\\d{1,3},\\d{1,3}|xyz,\\d*\\.?\\d+,\\d*\\.?\\d+)$",
+                            "description": "A color value in a supported format. Must match one of the following patterns: <br/> • rgb,<i>r</i>,<i>g</i>,<i>b</i> (three integers, e.g., rgb,100,120,110) <br/> • hsv,<i>h</i>,<i>s</i>,<i>v</i> (three integers, e.g., hsv,120,100,100) <br/> • xyz,<i>x</i>,<i>y</i> (two numbers, e.g., xyz,0.25,0.34)"
+                        }
+                    },
+                    "required": ["Color"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "DateTime": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+                            "description": "A datetime value in ISO 8601 format (e.g., DateTime: \"2024-10-08T10:15:30Z\"). Fractional seconds are optional."
+                        }
+                    },
+                    "required": ["DateTime"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "Duration": {
+                            "type": "string",
+                            "pattern": "^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$",
+                            "description": "A duration value in ISO 8601 format (e.g., Duration: \"PT12H5M46S\")."
+                        }
+                    },
+                    "required": ["Duration"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "JSON": {
+                            "type": "string",
+                            "description": "A JSON string (e.g., JSON: \"{\\\"hello\\\": \\\"world\\\"}\")."
+                        }
+                    },
+                    "required": ["JSON"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "Homie values expressed as an object with a datatype key (String, Integer, Float, Bool, Enum, Color, DateTime, Duration, or JSON)."
+        },
+        "QueryDefinition": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "$ref": "#/definitions/ValueConditionHomieDomain"
+                },
+                "device": {
+                    "$ref": "#/definitions/DeviceQuery"
+                },
+                "node": {
+                    "$ref": "#/definitions/NodeQuery"
+                },
+                "property": {
+                    "$ref": "#/definitions/PropertyQuery"
+                }
+            },
+            "additionalProperties": false
+        },
+        "DeviceQuery": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "name": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "version": {
+                    "$ref": "#/definitions/ValueConditionInteger"
+                },
+                "homie": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "children": {
+                    "$ref": "#/definitions/ValueConditionVecHomieID"
+                },
+                "root": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "parent": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "extensions": {
+                    "$ref": "#/definitions/ValueConditionVecString"
+                }
+            },
+            "additionalProperties": false
+        },
+        "NodeQuery": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "name": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "type": {
+                    "$ref": "#/definitions/ValueConditionString"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PropertyQuery": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/definitions/ValueConditionHomieID"
+                },
+                "name": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "datatype": {
+                    "$ref": "#/definitions/ValueConditionHomieDataType"
+                },
+                "format": {
+                    "$ref": "#/definitions/ValueConditionString"
+                },
+                "settable": {
+                    "$ref": "#/definitions/ValueConditionBoolean"
+                },
+                "retained": {
+                    "$ref": "#/definitions/ValueConditionBoolean"
+                },
+                "unit": {
+                    "$ref": "#/definitions/ValueConditionString"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ValueConditionHomieID": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/HomieID",
+                    "description": "A HomieID value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/HomieID",
+                                    "description": "A single HomieID value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": { "$ref": "#/definitions/HomieID" },
+                                    "description": "An array of HomieIDs."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that don't require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "ValueConditionBoolean": {
+            "oneOf": [
+                {
+                    "type": "boolean",
+                    "description": "A simple boolean value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for boolean values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "boolean",
+                                    "description": "A single boolean value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "boolean"
+                                    },
+                                    "description": "An array of boolean values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for boolean values."
+        },
+        "ValueConditionHomieDomain": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "A simple homie domain value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for homie domain values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "description": "A single homie domain value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "description": "An array of homie domain values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that don't require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ]
+        },
+        "HomieDataType": {
+            "type": "string",
+            "enum": ["integer", "float", "boolean", "string", "enum", "color", "datetime", "duration", "json"],
+            "description": "Datatypes in the Homie protocol. Allowed values: 'integer', 'float', 'boolean', 'string', 'enum', 'color', 'datetime', 'duration', or 'json'."
+        },
+        "ValueConditionHomieDataType": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/HomieDataType",
+                    "description": "A direct HomieDataType value for comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for HomieDataType values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "$ref": "#/definitions/HomieDataType",
+                                    "description": "A single HomieDataType value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": { "$ref": "#/definitions/HomieDataType" },
+                                    "description": "An array of HomieDataType values."
+                                }
+                            ],
+                            "description": "Optional value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for HomieDataType values, allowing either a direct value or an operator-based condition."
+        },
+        "ValueConditionInteger": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "description": "A simple integer value used for direct comparison."
+                },
+                {
+                    "$ref": "#/definitions/PatternCondition",
+                    "description": "A regex pattern to match against."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for integer values.",
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/ConditionOperator",
+                            "description": "The comparison operator to apply."
+                        },
+                        "value": {
+                            "oneOf": [
+                                {
+                                    "type": "integer",
+                                    "description": "A single integer value."
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "integer"
+                                    },
+                                    "description": "An array of integer values."
+                                }
+                            ],
+                            "description": "Optional integer value(s) for comparison. May be omitted for operators that do not require a value."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for integer values, allowing either a direct value or an operator-based condition."
+        },
+        "ValueConditionVecString": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A direct vector of strings used for comparison."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for a vector of strings.",
+                    "properties": {
+                        "operator": {
+                            "type": "string",
+                            "enum": ["=", "<>", "includesAny", "includesNone", "matchAlways"],
+                            "description": "The comparison operator to apply. Supported operators: '=', '<>', 'includesAny', 'includesNone', and 'matchAlways'."
+                        },
+                        "value": {
+                            "$ref": "#/definitions/ValueSetVecString",
+                            "description": "Optional vector value(s) for comparison."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for a vector of strings. This condition may be specified either as a direct array of strings or as an operator-based condition."
+        },
+        "ValueSetVecString": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "A single vector of strings."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "description": "Multiple vectors of stings."
+                }
+            ],
+            "description": "A value set for vectors of stings, either a single vector or multiple vectors."
+        },
+        "ValueSetVecHomieID": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/HomieID" },
+                    "description": "A single vector of HomieIDs."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/HomieID" }
+                    },
+                    "description": "Multiple vectors of HomieIDs."
+                }
+            ],
+            "description": "A value set for vectors of HomieIDs, either a single vector or multiple vectors."
+        },
+        "ValueConditionVecHomieID": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/HomieID" },
+                    "description": "A direct vector of HomieIDs used for comparison."
+                },
+                {
+                    "type": "object",
+                    "description": "An operator-based condition for a vector of HomieIDs.",
+                    "properties": {
+                        "operator": {
+                            "type": "string",
+                            "enum": ["=", "<>", "includesAny", "includesNone", "matchAlways"],
+                            "description": "The comparison operator to apply. Supported operators: '=', '<>', 'includesAny', 'includesNone', and 'matchAlways'."
+                        },
+                        "value": {
+                            "$ref": "#/definitions/ValueSetVecHomieID",
+                            "description": "Optional vector value(s) for comparison."
+                        }
+                    },
+                    "required": ["operator"],
+                    "additionalProperties": false
+                }
+            ],
+            "description": "A value condition for a vector of HomieIDs. This condition may be specified either as a direct array of HomieIDs or as an operator-based condition."
+        },
+
+        "QoS": {
+            "type": "string",
+            "enum": ["AtMostOnce", "AtLeastOnce", "ExactlyOnce"],
+            "description": "Quality of Service level for MQTT."
+        },
+        "PatternCondition": {
+            "type": "object",
+            "description": "A regex pattern to match against.",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "The regex pattern used for matching."
+                }
+            },
+            "required": ["pattern"],
+            "additionalProperties": false
+        },
+        "ConditionOperator": {
+            "type": "string",
+            "enum": [
+                "=",
+                ">",
+                "<",
+                ">=",
+                "<=",
+                "<>",
+                "includesAny",
+                "includesNone",
+                "matchAlways",
+                "isEmpty",
+                "exists"
+            ],
+            "description": "The comparison operator to apply."
+        }
+    }
+}

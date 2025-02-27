@@ -1,0 +1,350 @@
+---
+id: virtual-test-device
+name: virtual test device
+children:
+  - dev-1
+  - dev-2
+nodes:
+  - id: switch
+    pass_through: true
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+    property_opts:
+      read_from_mqtt: true
+      read_timeout: 1000ms
+---
+id: virtual-test-device-hello
+name: various tests
+nodes:
+  - id: switch
+    pass_through: true
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+    property_opts:
+      read_from_mqtt: true
+      read_timeout: 1000ms
+  - id: switch2
+    pass_through: false
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+    properties:
+      - id: state
+        compound_spec:
+          members:
+            - mqtt_input:
+                topic: test/123
+                mapping:
+                  - from:
+                      pattern: "*.off*."
+                    to: { Bool: false }
+                  - { to: { Bool: true } }
+              mqtt_output:
+                topic: test/output
+                qos: ExactlyOnce
+                retained: true
+                mapping:
+                  - { from: { Bool: true }, to: "on" }
+                  - { to: "off" }
+  - id: lights2
+    pass_through: false
+    from_smarthome:
+      type: switch
+    properties:
+      - id: state
+        compound_spec:
+          members:
+            - group-2/switch/state
+            - group-1/switch/state
+            - dev-00-17-88-01-09-ba-50-0e/switch/state
+          aggregate_function: or
+---
+id: rule-test-dev
+name: Rules test devices
+nodes:
+  - id: switch
+    name: Switch test node
+    from_smarthome:
+      type: switch
+---
+id: windows-1
+name: Indicates if any windows are currently opened
+nodes:
+  - id: window-contacts
+    name: window contact states
+    from_smarthome:
+      type: contact
+    properties:
+      - id: state
+        datatype: boolean
+        compound_spec:
+          members:
+            - oeq0429851/contact/state
+            - meq0753110/contact/state
+            - query:
+                node:
+                  id: contact
+                property:
+                  id: state
+          aggregate_function: and
+---
+id: lights-wz
+name: wohnzimmer lights
+nodes:
+  - id: dimmer
+    name: window contact states
+    from_smarthome:
+      type: dimmer
+    properties:
+      - id: brightness
+        datatype: integer
+        compound_spec:
+          members:
+            - dev-00-17-88-01-09-ba-50-0e/dimmer/brightness
+            - dev-ec-1b-bd-ff-fe-6c-f0-5b/dimmer/brightness
+            - dev-ec-1b-bd-ff-fe-31-77-a3/dimmer/brightness
+            - dev-ec-1b-bd-ff-fe-71-39-88/dimmer/brightness
+            - dev-9c-69-37-00-00-1f-7d-b4/dimmer/brightness
+            - dev-ec-1b-bd-ff-fe-71-3c-4e/dimmer/brightness
+          aggregate_function: avg
+---
+id: ter-switch-leiste
+name: Terasse Steckdosenleiste
+nodes:
+  - id: switch
+    pass_through: true
+    from_smarthome:
+      type: switch
+    properties:
+      - id: state
+        compound_spec:
+          members:
+            - mqtt_input:
+                topic: shellies/shelly1-C45BBE77B9C9/relay/0
+                mapping:
+                  - { from: "off", to: { Bool: false } }
+                  - { from: "on", to: { Bool: true } }
+              mqtt_output:
+                topic: shellies/shelly1-C45BBE77B9C9/relay/0/command
+                mapping:
+                  - { from: { Bool: true }, to: "on" }
+                  - { from: { Bool: false }, to: "off" }
+---
+id: windows-2
+name: Indicates if any windows are open
+nodes:
+  - id: window-contacts
+    name: Window Contacts
+    from_smarthome:
+      type: contact
+    properties:
+      - id: state
+        datatype: boolean
+        compound_spec:
+          members:
+            - oeq0429851/contact/state
+            - meq0753110/contact/state
+            - query:
+                node:
+                  id: contact
+                property:
+                  id: state
+          aggregate_function: or
+---
+id: virtual-switch-2
+name: Switch with Custom Mapping
+nodes:
+  - id: switch
+    from_smarthome:
+      type: switch
+    properties:
+      - id: state
+        compound_spec:
+          members:
+            - mqtt_input:
+                topic: shellies/shelly1-C45BBE77B9C9/relay/0
+                mapping:
+                  - from: "off"
+                    to: { Bool: false }
+                  - from: "on"
+                    to: { Bool: true }
+              mqtt_output:
+                topic: shellies/shelly1-C45BBE77B9C9/relay/0/command
+                mapping:
+                  - from: { Bool: true }
+                    to: "on"
+                  - from: { Bool: false }
+                    to: "off"
+---
+id: button-test
+name: Virtual Button
+nodes:
+  - id: button
+    from_smarthome:
+      type: button
+      config:
+        actions: ["press", "long-press"]
+    properties:
+      - id: action
+        compound_spec:
+          members:
+            - mqtt_input:
+                topic: zigbee2mqtt/button-1/action
+                mapping:
+                  - from: "single"
+                    to: { Enum: "press" }
+                  - from: "hold"
+                    to: { Enum: "long-press" }
+---
+id: motion-aggregator
+name: Motion Detector Group
+nodes:
+  - id: motion
+    from_smarthome:
+      type: motion
+    properties:
+      - id: active
+        datatype: boolean
+        compound_spec:
+          members:
+            - query:
+                node:
+                  id: motion
+                property:
+                  id: state
+          aggregate_function: or
+---
+id: motion-light
+name: Motion-Controlled Light
+nodes:
+  - id: light
+    from_smarthome:
+      type: switch
+    properties:
+      - id: state
+        compound_spec:
+          members:
+            - query:
+                node:
+                  id: motion
+                property:
+                  id: state-integer
+              mapping:
+                input:
+                  - from: { Integer: 1 }
+                    to: { Bool: true }
+                  - from: { Integer: 0 }
+                    to: { Bool: false }
+          aggregate_function: or
+---
+id: kitchen-lights
+name: Kitchen Lights
+nodes:
+  - id: dimmer
+    from_smarthome:
+      type: dimmer
+    properties:
+      - id: brightness
+        datatype: integer
+        compound_spec:
+          members:
+            - ceiling-light/dimmer/brightness
+            - counter-light/dimmer/brightness
+            - table-light/dimmer/brightness
+          aggregate_function: avg
+          aggregation_debounce: 200ms
+---
+id: floor-lamp
+name: Floor Lamps
+nodes:
+  - id: light
+    from_smarthome:
+      type: dimmer
+    properties:
+      - id: brightness
+        datatype: integer
+        format: "0:100"
+        settable: true
+        retained: true
+        property_opts:
+          read_from_mqtt: true
+          read_timeout: 500ms
+---
+id: living-room-switch
+name: Living Room Switch
+nodes:
+  - id: switch
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+    pass_through: true
+---
+id: smart-plug
+name: Smart Plug
+nodes:
+  - id: plug
+    from_smarthome:
+      type: switch
+    properties:
+      - id: power-usage
+        datatype: float # Required, since this property is not predefined
+        unit: "W"
+---
+id: timed-device
+name: Timed Device Example
+nodes:
+  - id: sensor
+    properties:
+      - id: value
+        datatype: boolean
+        property_opts:
+          read_from_mqtt: true
+          read_timeout: 1s
+        compound_spec:
+          members:
+            - mqtt_input:
+                topic: test/sensor
+                mapping:
+                  - from: "on"
+                    to: { Bool: true }
+                  - to: { Bool: false }
+          aggregation_debounce: 500ms
+---
+id: living-room-lights
+name: Living Room Lights
+nodes:
+  - id: dimmer
+    name: Dimmer Group
+    from_smarthome:
+      type: dimmer
+    properties:
+      - id: brightness
+        datatype: integer
+        compound_spec:
+          members:
+            - floor-lamp-couch/dimmer/brightness
+            - ceiling-light/dimmer/brightness
+            - bookshelf-light/dimmer/brightness
+            - tv-backlight/dimmer/brightness
+            - wall-lamp/dimmer/brightness
+            - dining-table-lamp/dimmer/brightness
+          aggregate_function: avg
+          aggregation_debounce: 200ms
+---
+id: virtual-switch
+name: Restorable Switch
+nodes:
+  - id: switch
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+    property_opts:
+      read_from_mqtt: true
+      read_timeout: 500ms
