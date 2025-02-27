@@ -19,6 +19,11 @@ RUN cargo build --release && \
 # Final Image
 FROM debian:bullseye-slim AS runtime
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install libc runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends libc-bin && rm -rf /var/lib/apt/lists/*
+
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     lua5.4 liblua5.4-0 && \
