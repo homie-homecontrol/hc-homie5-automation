@@ -1,5 +1,5 @@
 # Build Stage
-FROM rust:1.82-bullseye AS builder
+FROM rust:1.85-bookworm AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -22,7 +22,7 @@ RUN cargo build --release && \
     strip target/release/hc-homie5-automation  # Strip debug symbols
 
 # Final Image
-FROM debian:bullseye-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
