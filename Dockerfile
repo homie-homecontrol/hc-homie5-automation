@@ -3,9 +3,6 @@ FROM rust:1.85-bookworm AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install libc runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends libc-bin && rm -rf /var/lib/apt/lists/*
-
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev lua5.4 liblua5.4-dev pkg-config && \
@@ -25,10 +22,6 @@ RUN cargo build --release && \
 FROM debian:bookworm-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
-
-# Install libc runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends libc-bin && rm -rf /var/lib/apt/lists/*
-
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     lua5.4 liblua5.4-0 && \
