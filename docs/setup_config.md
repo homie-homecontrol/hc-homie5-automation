@@ -83,7 +83,7 @@ For persistent storage (to be used in rules) `hc-homie5-automation` supports a s
     - Example: `kubernetes:secret|configmap,name[,namespace]`
     - If no namespace is provided, the `default` namespace is used.
 
-## Docker compose example:
+## Docker compose example
 
 For a quick starting example see the `deploy/docker` folder in this repo. It gives a simple example on how to run `hc-homie5-automation`.
 
