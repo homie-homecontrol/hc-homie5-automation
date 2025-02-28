@@ -82,3 +82,56 @@ For persistent storage (to be used in rules) `hc-homie5-automation` supports a s
 
     - Example: `kubernetes:secret|configmap,name[,namespace]`
     - If no namespace is provided, the `default` namespace is used.
+
+## Docker compose example:
+
+For a quick starting example see the `deploy/docker` folder in this repo. It gives a simple example on how to run `hc-homie5-automation`.
+
+```yaml
+version: "3"
+services:
+    mqtt:
+        image: eclipse-mosquitto:latest
+        restart: "always"
+        deploy:
+            resources:
+                limits:
+                    memory: 25M
+        hostname: mqtt
+        dns:
+            - 8.8.8.8
+        ports:
+            - "1883:1883"
+            - "19001:19001"
+        volumes:
+            - ./mqtt/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+            - ./mqtt/data:/mosquitto/data
+            - ./mqtt/log:/mosquitto/log
+
+    hc-homie5-automation:
+        image: ghcr.io/homie-homecontrol/hc-homie5-automation:latest
+        restart: "always"
+        depends_on:
+            - mqtt
+        dns:
+            - 192.168.1.101
+        deploy:
+            resources:
+                limits:
+                    memory: 20M
+        environment:
+            HCACTL_HOMIE_HOST: "mqtt"
+            HCACTL_HOMIE_DOMAIN: homie
+            HCACTL_HOMIE_CLIENT_ID: hactl
+            HCACTL_HOMIE_CTRL_ID: homecontrol-automation
+            HCACTL_VIRTUAL_DEVICES_CONFIG: file:./data/virtual_devices
+            HCACTL_RULES_CONFIG: file:./data/rules
+            HCACTL_VALUE_STORE_CONFIG: sqlite:./data/store/data.db
+            HCACTL_LOGLEVEL: debug,info,warn,error
+            TZ: "Europe/Berlin"
+        volumes:
+            - ./rules:/service/data/rules
+            - ./virtual_devices:/service/data/virtual_devices
+            - ./store:/service/data/store
+            - /usr/share/zoneinfo/Europe/Berlin:/etc/localtime:ro
+```

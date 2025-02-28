@@ -28,12 +28,6 @@ pub async fn initialize_app(
 ) -> Result<(EventMultiPlexer, HomieClientHandle, HomieClientHandle, MqttClientHandle, SolarEventHandle, AppState)> {
     let settings = &SETTINGS;
 
-    let store = KeyValueStore::SQLite(SQLiteStore::new("store.db").await);
-    let value = 123; // define a owned string value
-    store.set("db_key", &value).await.unwrap(); // store the value
-    println!("Value: {}", store.get::<i64>("db_key").await.unwrap()); // retrieve the value -- type annotations are
-                                                                      // needed in this case as no type can be deferred
-                                                                      // from the println! usage
     let (app_event_sender, app_event_receiver) = mpsc::channel::<AppEvent>(CHANNEL_CAPACITY);
 
     let homie_client_options = MqttClientConfig::new(&settings.homie.hostname)

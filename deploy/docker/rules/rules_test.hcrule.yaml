@@ -1,0 +1,209 @@
+---
+name: query-test-vec
+triggers:
+  - queries:
+      - device:
+          children:
+            operator: includesAny
+            value: ["dev-1"]
+        node:
+          id: switch
+        property:
+          id:
+            pattern: "st.*"
+          format:
+            operator: "="
+            value: "10:1:1"
+    set_value:
+      operator: matchAlways
+actions:
+  - type: run
+    script: |-
+      print("Running action query test with vector matching")
+
+---
+name: test-device-test-hello
+triggers:
+  - subjects:
+      - virtual-test-device-hello/switch/action
+      - device_id: device-1
+        node_id: node-2
+        prop_id: prop-1
+        homie_domain: blabla
+    set_value: "blah"
+actions:
+  - type: run
+    script: |-
+      local prop = "virtual-test-device-hello/switch/state"
+      value_store:set(prop, not virtual_device:get_value(prop))
+      print("VALUE: ", event.on_set_value)
+      local t=value_store:get("test2")
+      print("test2: ", t, type(t))
+
+      virtual_device:set_value(prop, value_store:get("test2"))
+      virtual_device:set_value(prop, not virtual_device:get_value(prop))
+
+---
+name: test-device-test-hello-changed
+triggers:
+  - subjects:
+      - virtual-test-device-hello/switch/state
+    trigger_value:
+      Duration: PT50S
+actions:
+  - type: run
+    script: |-
+      local prop = "virtual-test-device-hello/switch/state"
+      print("Value: ", event.value, type(event.value))
+      value_store:set("test3", event.value)
+      local t3=value_store:get("test3")
+      print("test3: ", t3, type(t3))
+
+---
+name: on-set-device-test
+triggers:
+  - queries:
+      - device:
+          id: rule-test-dev
+        property:
+          settable: true
+    set_value:
+      operator: matchAlways
+actions:
+  - type: run
+    script: |-
+      local prop = event.prop
+      print("Prop:", prop)
+      print("Event type:", event.type)
+      print("From value:", event.from_value)
+      print("Value:", type(event.on_set_value))
+      virtual_device:set_str_value(prop, event.on_set_value)
+      local upd_value = virtual_device:get_value(prop)
+      print("Read Value:", type(upd_value))
+      virtual_device:set_value(prop, upd_value)
+
+---
+name: window_open_detect
+triggers:
+  - queries:
+      - node:
+          id: contact
+        property:
+          id: state
+          datatype: boolean
+    changed: {}
+actions:
+  - type: timer
+    timer:
+      id: window-timer
+      duration: 10s
+      triggerbound: true
+      cancelcondition:
+        Bool: false
+---
+name: window_open_notify
+triggers:
+  - timer_id: window-timer-homie5-jupiter/5/req0226894/contact/state
+actions:
+  - type: run
+    script: |-
+      -- implement actual code to e.g. send a push notification to the user
+      print("==> Window open. Please close:", desc.name)
+---
+name: rule1b
+triggers:
+  - subjects:
+      - dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
+    trigger_value:
+      operator: matchAlways
+  - topic: test/rule1b
+    trigger_value:
+      operator: matchAlways
+actions:
+  - type: map_set
+    target: homie5-jupiter/group-4/switch/state
+    mapping:
+      # Map from button property (HomieValue) to Boolean
+      - from:
+          HomieValue:
+            Integer: 2002
+        to:
+          Bool: false
+      # Map from mqtt topic (String) to Boolean
+      - from:
+          String: "off"
+        to:
+          Bool: false
+      # Map anything else to true
+      - to:
+          Bool: true
+
+---
+name: rule2b
+triggers:
+  - subjects:
+      - homie5-jupiter/dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
+    trigger_value:
+      operator: "="
+      value:
+        Integer: 2002
+actions:
+  - type: run
+    script: |-
+      local prop = event.prop
+      print("Prop:", prop)
+      print("From value:", event.from_value)
+      print("Value:", event.value)
+      local t = value_store:get("test")
+      print("ValueStore:", t , type(t))
+      local t2 = t + 1
+      print("t2:", t2 , type(t2))
+      value_store:set("test", t2)
+
+---
+name: rule3-mqtt-test
+triggers:
+  - topic: test/rule3
+    qos: ExactlyOnce
+    skip_retained: true
+    trigger_value:
+      pattern: ".*[hH]ello.*"
+actions:
+  - type: mqtt
+    topic: test/rule3/echo
+    value: Hello World
+    retain: true
+    qos: ExactlyOnce
+---
+name: rule9
+triggers:
+  - subjects:
+      - homie5-jupiter/group-5/switch/state
+    changed:
+      from:
+        operator: ">"
+        value:
+          Integer: 5
+      to:
+        pattern: "hello.*"
+
+actions:
+  - type: timer
+    timer:
+      id: test-timer
+      duration: 3s
+      triggerbound: true
+      cancelcondition:
+        Bool: true
+---
+name: test-device-toggle
+triggers:
+  - subjects:
+      - virtual-test-device/switch/action
+    set_value: "toggle"
+actions:
+  - type: run
+    script: |-
+      local prop = "virtual-test-device/switch/state"
+      virtual_device:set_value(prop, not virtual_device:get_value(prop))
+      print("VALUE: ", event.on_set_value)

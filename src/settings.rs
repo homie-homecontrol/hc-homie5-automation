@@ -108,7 +108,7 @@ impl TryFrom<String> for ValueStoreConfig {
         match parts[0].to_lowercase().as_str() {
             "inmemory" => Ok(ValueStoreConfig::InMemory),
 
-            "sqlite" if parts.len() == 1 => Ok(ValueStoreConfig::Sqlite {
+            "sqlite" if parts.len() == 2 => Ok(ValueStoreConfig::Sqlite {
                 path: parts[1].to_string(),
             }),
             "kubernetes" if parts.len() >= 2 => {
