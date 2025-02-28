@@ -24,7 +24,7 @@ FROM debian:bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    lua5.4 liblua5.4-0 && \
+    lua5.4 liblua5.4-0 libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

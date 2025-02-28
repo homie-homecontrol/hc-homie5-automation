@@ -5,7 +5,8 @@
 Recommended method of installation and usage is `Docker`.
 
 ```bash
- # todo: add docker image pull command here
+ docker pull ghcr.io/homie-homecontrol/hc-homie5-automation:latest
+
 ```
 
 ## Container setup
