@@ -12,8 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  #PLATFORMS: linux/arm/v7, linux/amd64, linux/arm64
-  PLATFORMS: linux/amd64
+  PLATFORMS: linux/amd64, linux/arm64
 
 jobs:
   test:
