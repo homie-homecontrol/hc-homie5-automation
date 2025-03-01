@@ -37,6 +37,10 @@ COPY --from=builder-deps /service/hc-homie5-automation/target target
 # Copy the entire source code
 COPY . .
 
+# Inject version from build argument (defaults to placeholder)
+ARG VERSION=0.0.0-placeholder
+RUN sed -i "s/^version = \"0.0.0-placeholder\"/version = \"$VERSION\"/" Cargo.toml
+
 # Build the Rust application
 RUN cargo build --release && \
     strip target/release/hc-homie5-automation  # Strip debug symbols
