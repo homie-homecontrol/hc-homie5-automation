@@ -53,7 +53,7 @@ jobs:
 
     strategy:
       matrix:
-        platform: [linux/amd64, linux/arm64, linux/arm/v7]
+        platform: [linux/amd64, linux/arm64]
 
     permissions:
       contents: read
@@ -132,5 +132,4 @@ jobs:
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-armv7
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64
