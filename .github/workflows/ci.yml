@@ -54,13 +54,6 @@ jobs:
     strategy:
       matrix:
         platform: [linux/amd64, linux/arm64, linux/arm/v7]
-        include:
-          - platform: linux/amd64
-            arch: x86_64
-          - platform: linux/arm64
-            arch: aarch64
-          - platform: linux/arm/v7
-            arch: armv7
 
     permissions:
       contents: read
@@ -92,11 +85,9 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
-          push: true
+          push: false
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-${{ matrix.arch }}
-          build-args: |
-            TARGETARCH=${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-${{ matrix.platform }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -122,7 +113,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-x86_64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-aarch64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-armv7
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-linux/amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-linux/arm64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}}:${{ env.RELEASE_VERSION }}-linux/arm/v7
 
