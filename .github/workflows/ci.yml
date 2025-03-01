@@ -98,7 +98,7 @@ jobs:
     strategy:
       matrix:
         platform: [x86_64, aarch64, armv7]
-    needs: test
+    needs: build
     permissions:
       contents: read
       packages: write
