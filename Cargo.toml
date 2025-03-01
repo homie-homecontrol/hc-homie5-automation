@@ -7,45 +7,28 @@ edition = "2021"
 config = "rustfmt.toml"
 
 [dependencies]
-async-trait = "0.1.83"
-axum = { version = "0.8.1", features = ["macros"] }
 better-panic = "0.3.0"
-bitflags = { version = "2.6.0", features = ["serde"] }
-bytes = "1.8.0"
 color-eyre = "0.6.3"
 directories = "6.0.0"
 env_logger = "0.11.5"
 log = "0.4.22"
-human-panic = "2.0.2"
 reqwest = {version = "0.12.12", features = ["json"] }
 serde = { version = "1.0.214", features = ["derive"] }
-serde_with = "3.11.0"
 serde_json = "1.0"
-strip-ansi-escapes = "0.2.0"
 thiserror = "2.0.1"
 tokio = { version = "1.41.0", features = ["full"] }
 tracing-error = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "serde"] }
 rand = "0.9.0"
-notify-debouncer-full = "0.5.0"
 ctrlc = "3.4.5"
 rumqttc = "0.24.0"
-enum_dispatch = "0.3.13"
-percent-encoding = "2.3.1"
-derive_deref = "1.1.1"
 tokio-util = "0.7.9"
 serde_yml = "0.0.12"
 chrono = "0.4.39"
-notify = "8.0.0"
-glob = "0.3.2"
-blake3 = "1.5.5"
-walkdir = "2.5.0"
 mlua = { version = "0.10.2", features = ["async","lua54", "macros", "serialize"] }
 cron = { version = "0.15.0", features = ["serde"] }
 sun = "0.3.1"
 once_cell = "1.20.2"
-figment = { version = "0.10.19", features = ["env", "toml", "yaml"] }
-dirs = "6.0.0"
 config_watcher = "0.9.0"
 homie5 = "0.7.0"
 hc-homie5-smarthome = "0.3.0"
