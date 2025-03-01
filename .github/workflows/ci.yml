@@ -61,6 +61,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
 
+      - name: Install ARMv7 cross compiler
+        if: matrix.platform == 'armv7'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
+
       - name: Set up target
         run: |
           case "${{ matrix.platform }}" in
@@ -68,6 +74,12 @@ jobs:
             aarch64) echo "TARGET=aarch64-unknown-linux-gnu" >> $GITHUB_ENV ;;
             armv7) echo "TARGET=armv7-unknown-linux-gnueabihf" >> $GITHUB_ENV ;;
           esac
+
+      - name: Set cross linker
+        run: |
+          if [ "${{ matrix.platform }}" = "armv7" ]; then
+            echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+          fi
 
       - name: Add Rust target
         run: rustup target add ${{ env.TARGET }}
