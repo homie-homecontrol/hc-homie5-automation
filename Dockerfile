@@ -1,8 +1,9 @@
-# ARG to detect platform during multi-arch builds
-ARG TARGETARCH
-
 # Base Build Stage - Setup Dependencies (using prebuilt cargo-chef)
+ARG TARGETARCH  # This applies to the global scope (first stage)
 FROM rust:1.85-bookworm AS chef
+
+# Need to re-declare in each stage
+ARG TARGETARCH  # <- this is mandatory here inside each stage
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,12 +28,14 @@ RUN cargo-chef prepare --recipe-path recipe.json
 # Build Stage - Build Dependencies (cached layer for deps only)
 FROM rust:1.85-bookworm AS builder-deps
 
+ARG TARGETARCH  # <- re-declare here too!
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev lua5.4 liblua5.4-dev pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
-# Detect correct cargo-chef binary (same as before)
+# Detect correct cargo-chef binary
 RUN ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || ([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "armv7")) && \
     curl -L -o /usr/local/bin/cargo-chef \
     https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.67/cargo-chef-v0.1.67-${ARCH}-unknown-linux-gnu && \
@@ -46,6 +49,7 @@ COPY Cargo.toml Cargo.lock ./
 
 # Cache dependency compilation (this layer will persist between builds if cache works correctly)
 RUN cargo-chef cook --release --recipe-path recipe.json
+
 
 # Final Build Stage - Application Source + Final Build
 FROM rust:1.85-bookworm AS builder
@@ -104,4 +108,6 @@ ENV HCACTL_HOMIE_HOST="mqtt" \
 USER appuser
 
 ENTRYPOINT ["/service/hc-homie5-automation"]
+
+
 
