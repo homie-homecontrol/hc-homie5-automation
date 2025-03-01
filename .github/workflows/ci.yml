@@ -1,10 +1,10 @@
 name: CI and Publish
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  # push:
+  #   branches: ["main"]
+  # pull_request:
+  #   branches: ["main"]
   release:
     types: [created]
 
@@ -13,12 +13,9 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  test:
+    name: Build & Test (Rust)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [x86_64, aarch64, armv7]
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,18 +23,10 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
-
-      - name: Set up target
-        run: |
-          case ${{ matrix.platform }} in
-            x86_64) echo "TARGET=x86_64-unknown-linux-gnu" >> $GITHUB_ENV ;;
-            aarch64) echo "TARGET=aarch64-unknown-linux-gnu" >> $GITHUB_ENV ;;
-            armv7) echo "TARGET=armv7-unknown-linux-gnueabihf" >> $GITHUB_ENV ;;
-          esac
 
       - name: Cache Cargo
         uses: actions/cache@v3
@@ -46,38 +35,38 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform }}-
+            ${{ runner.os }}-cargo-
 
-      - name: Build binary
-        run: cargo build --release --target ${{ env.TARGET }}
+      - name: Build
+        run: cargo build --verbose
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: hc-homie5-automation-${{ matrix.platform }}
-          path: target/${{ env.TARGET }}/release/hc-homie5-automation
+      - name: Run tests
+        run: cargo test --verbose
 
   docker:
-    needs: build
+    name: Docker Image
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'created'
     strategy:
       matrix:
         platform: [x86_64, aarch64, armv7]
-
+    needs: test
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download binary
+      - name: Download binary artifact
         uses: actions/download-artifact@v4
         with:
           name: hc-homie5-automation-${{ matrix.platform }}
           path: .
 
-      - name: Set permissions
+      - name: Ensure binary is executable
         run: chmod +x hc-homie5-automation
 
       - name: Determine version
@@ -89,42 +78,50 @@ jobs:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push Docker image for ${{ matrix.platform }}
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/${{ matrix.platform }}
+          platforms: ${{ matrix.platform == 'x86_64' && 'linux/amd64' || matrix.platform == 'aarch64' && 'linux/arm64' || 'linux/arm/v7' }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform == 'x86_64' && 'amd64' || matrix.platform == 'aarch64' && 'arm64' || 'armv7' }}
           build-args: |
             VERSION=${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   manifest:
-    needs: docker
+    name: Create Multi-Arch Manifest
     runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'release' && github.event.action == 'created'
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Determine version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
-      - name: Create manifest
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-x86_64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-aarch64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-armv7
