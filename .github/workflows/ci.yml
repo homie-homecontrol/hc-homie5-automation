@@ -47,7 +47,7 @@ jobs:
   #       run: cargo test --verbose
 
   docker:
-    name: Build & Push Docker Image (per arch)
+    name: Docker Image
     runs-on: ubuntu-latest
     # if: github.event_name == 'release' && github.event.action == 'created'
 
@@ -85,7 +85,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
-          push: false
+          push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-${{ matrix.platform }}
           cache-from: type=gha
