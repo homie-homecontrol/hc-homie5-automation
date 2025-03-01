@@ -131,5 +131,6 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-amd64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64
