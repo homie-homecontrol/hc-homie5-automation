@@ -2,7 +2,7 @@ name: CI and Publish
 
 on:
   push:
-    branches: ["optimize-build"]
+    branches: ["main"]
   pull_request:
     branches: ["main"]
   release:
@@ -13,43 +13,43 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # test:
-  #   name: Build & Test (Rust)
-  #   runs-on: ubuntu-latest
-  #
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Set up Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #
-  #     - name: Install system dependencies
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
-  #
-  #     - name: Cache Cargo
-  #       uses: actions/cache@v3
-  #       with:
-  #         path: |
-  #           ~/.cargo/registry
-  #           ~/.cargo/git
-  #           target
-  #         key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-  #         restore-keys: |
-  #           ${{ runner.os }}-cargo-
-  #
-  #     - name: Build
-  #       run: cargo build --verbose
-  #
-  #     - name: Run tests
-  #       run: cargo test --verbose
+  test:
+    name: Build & Test (Rust)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
 
   docker:
     name: Docker Image
     runs-on: ubuntu-latest
-    # if: github.event_name == 'release' && github.event.action == 'created'
+    if: github.event_name == 'release' && github.event.action == 'created'
 
     strategy:
       matrix:
