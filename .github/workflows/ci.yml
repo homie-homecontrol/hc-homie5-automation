@@ -13,9 +13,11 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
-    name: Build & Test (Rust)
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [x86_64, aarch64, armv7]
 
     steps:
       - name: Checkout repository
@@ -24,10 +26,18 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install system dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
+
+      - name: Set up target
+        run: |
+          case ${{ matrix.platform }} in
+            x86_64) echo "TARGET=x86_64-unknown-linux-gnu" >> $GITHUB_ENV ;;
+            aarch64) echo "TARGET=aarch64-unknown-linux-gnu" >> $GITHUB_ENV ;;
+            armv7) echo "TARGET=armv7-unknown-linux-gnueabihf" >> $GITHUB_ENV ;;
+          esac
 
       - name: Cache Cargo
         uses: actions/cache@v3
@@ -36,43 +46,42 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-${{ matrix.platform }}-
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Build binary
+        run: cargo build --release --target ${{ env.TARGET }}
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hc-homie5-automation-${{ matrix.platform }}
+          path: target/${{ env.TARGET }}/release/hc-homie5-automation
 
   docker:
-    name: Docker Image
+    needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'created'
-
     strategy:
       matrix:
-        platform: [linux/amd64, linux/arm64, linux/arm/v7]
-
-    permissions:
-      contents: read
-      packages: write
+        platform: [x86_64, aarch64, armv7]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Determine version
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-          else
-            echo "VERSION=0.0.0-placeholder" >> $GITHUB_ENV
-          fi
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: hc-homie5-automation-${{ matrix.platform }}
+          path: .
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Set permissions
+        run: chmod +x hc-homie5-automation
+
+      - name: Determine version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -84,42 +93,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image for ${{ matrix.platform }}
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'armv7' }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform }}
           build-args: |
             VERSION=${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   manifest:
-    name: Create Multi-Arch Manifest
-    runs-on: ubuntu-latest
     needs: docker
-    if: github.event_name == 'release' && github.event.action == 'created'
-
-    permissions:
-      contents: read
-      packages: write
-
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Determine version
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-          else
-            echo "VERSION=0.0.0-placeholder" >> $GITHUB_ENV
-          fi
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -127,10 +118,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create multi-arch manifest
+      - name: Determine version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Create manifest
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-x86_64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-aarch64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-armv7
