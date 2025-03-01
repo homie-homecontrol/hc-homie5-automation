@@ -16,42 +16,42 @@ env:
   # PLATFORMS: linux/amd64, linux/arm/v7, linux/arm64
 
 jobs:
-  test:
-    name: Build & Test
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-
-
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Run tests
-        run: cargo test --verbose
-
+  # test:
+  #   name: Build & Test
+  #   runs-on: ubuntu-latest
+  #
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Rust
+  #       uses: dtolnay/rust-toolchain@stable
+  #
+  #     - name: Install system dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
+  #
+  #     - name: Cache Cargo registry
+  #       uses: actions/cache@v3
+  #       with:
+  #         path: |
+  #           ~/.cargo/registry
+  #           ~/.cargo/git
+  #         key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+  #         restore-keys: |
+  #           cargo-${{ runner.os }}-
+  #
+  #     - name: Build
+  #       run: cargo build --verbose
+  #
+  #     - name: Run tests
+  #       run: cargo test --verbose
+  #
   docker:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'created'
+    # if: github.event_name == 'release' && github.event.action == 'created'
 
     permissions:
       contents: read

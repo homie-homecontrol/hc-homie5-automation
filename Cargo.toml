@@ -52,3 +52,7 @@ hc-homie5-smarthome = "0.3.0"
 hc-homie5 = "0.3.1"
 simple_kv_store = { version = "0.1.2" }
 regex = "1.11.1"
+
+[[bin]]
+name = "hc-homie5-automation"
+path = "bin/hc-homie5-automation/main.rs"
