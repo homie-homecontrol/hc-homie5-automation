@@ -9,15 +9,12 @@ on:
     types: [created]
 
 env:
-  CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  PLATFORMS: linux/amd64
-  # PLATFORMS: linux/amd64, linux/arm/v7, linux/arm64
 
 jobs:
   test:
-    name: Build & Test
+    name: Build & Test (Rust)
     runs-on: ubuntu-latest
 
     steps:
@@ -32,15 +29,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
 
-      - name: Cache Cargo registry
+      - name: Cache Cargo
         uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            target
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-${{ runner.os }}-
+            ${{ runner.os }}-cargo-
 
       - name: Build
         run: cargo build --verbose
@@ -49,9 +47,13 @@ jobs:
         run: cargo test --verbose
 
   docker:
-    name: Build & Push Docker Image
+    name: Docker Image
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'created'
+
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64, linux/arm/v7]
 
     permissions:
       contents: read
@@ -64,7 +66,7 @@ jobs:
       - name: Extract release version
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-      - name: Set up QEMU for multi-arch builds
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -73,26 +75,45 @@ jobs:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v4
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      - name: Build and push Docker image
+      - name: Build and push image for ${{ matrix.platform }}
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
           push: true
-          platforms: ${{ env.PLATFORMS }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha # enable cache retrieval from GitHub Actions cache
-          cache-to: type=gha,mode=max # enable cache export (mode=max for all layers)
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'armv7' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  manifest:
+    name: Create Multi-Arch Manifest
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'release' && github.event.action == 'created'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-linux/amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}-linux/arm64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}}:${{ env.RELEASE_VERSION }}-linux/arm/v7
 

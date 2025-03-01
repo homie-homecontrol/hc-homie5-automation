@@ -81,7 +81,10 @@ pub async fn initialize_app(
     let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
         || match &settings.app.rules_config {
             ConfigBackend::File { path } => {
-                backend::run_config_file_watcher(fs::canonicalize(path).unwrap(), "*.yaml", Duration::from_millis(500))
+                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
+                    panic!("Configured Rules folder [{}] does not exist!", path.as_os_str().to_string_lossy())
+                });
+                backend::run_config_file_watcher(absolute_path, "*.yaml", Duration::from_millis(500))
             }
             ConfigBackend::Kubernetes { name, namespace } => {
                 backend::run_configmap_watcher(name.to_string(), namespace.to_string())
@@ -105,7 +108,10 @@ pub async fn initialize_app(
     let (vdevices_watcher_handle, vdevices_receiver) = run_config_item_watcher::<VirtualDeviceSpec, _>(
         || match &settings.app.virtual_devices_config {
             ConfigBackend::File { path } => {
-                backend::run_config_file_watcher(fs::canonicalize(path).unwrap(), "*.yaml", Duration::from_millis(500))
+                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
+                    panic!("Configured Virtual Devices folder [{}] does not exist!", path.as_os_str().to_string_lossy())
+                });
+                backend::run_config_file_watcher(absolute_path, "*.yaml", Duration::from_millis(500))
             }
             ConfigBackend::Kubernetes { name, namespace } => {
                 log::debug!("Using Kubernetes backend for virtual devices");
