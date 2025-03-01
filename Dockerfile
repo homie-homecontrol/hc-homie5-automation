@@ -1,5 +1,5 @@
 # Stage 1: Base Image with Rust and Dependencies
-FROM lukemathwalker/cargo-chef:0.1.71-rust-1.85-bookworm AS chef
+FROM ghcr.io/homie-homecontrol/hc-homie5-automation/base:latest AS chef
 
 # Install necessary system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
