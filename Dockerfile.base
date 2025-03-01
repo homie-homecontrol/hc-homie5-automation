@@ -1,0 +1,11 @@
+# Use the cargo-chef image as the starting point
+FROM lukemathwalker/cargo-chef:0.1.71-rust-1.85-bookworm
+
+# Install necessary system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libc6-dev \
+    lua5.4 \
+    liblua5.4-dev \
+    pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
