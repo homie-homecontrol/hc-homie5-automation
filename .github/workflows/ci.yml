@@ -1,10 +1,10 @@
 name: CI and Publish
 
 on:
-  # push:
-  #   branches: ["main"]
-  # pull_request:
-  #   branches: ["main"]
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
   release:
     types: [created]
 
@@ -14,7 +14,7 @@ env:
 
 jobs:
   test:
-    name: Build & Test (Rust)
+    name: Test (Rust)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -39,12 +39,58 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build
-        run: cargo build --verbose
-
       - name: Run tests
         run: cargo test --verbose
 
+  build:
+    name: Build Rust Binary (Multiarch)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'created'
+    strategy:
+      matrix:
+        platform: [x86_64, aarch64, armv7]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dev lua5.4 liblua5.4-dev pkg-config
+
+      - name: Set up target
+        run: |
+          case "${{ matrix.platform }}" in
+            x86_64) echo "TARGET=x86_64-unknown-linux-gnu" >> $GITHUB_ENV ;;
+            aarch64) echo "TARGET=aarch64-unknown-linux-gnu" >> $GITHUB_ENV ;;
+            armv7) echo "TARGET=armv7-unknown-linux-gnueabihf" >> $GITHUB_ENV ;;
+          esac
+
+      - name: Add Rust target
+        run: rustup target add ${{ env.TARGET }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.platform }}-
+
+      - name: Build binary
+        run: cargo build --release --target ${{ env.TARGET }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hc-homie5-automation-${{ matrix.platform }}
+          path: target/${{ env.TARGET }}/release/hc-homie5-automation
   docker:
     name: Docker Image
     runs-on: ubuntu-latest
