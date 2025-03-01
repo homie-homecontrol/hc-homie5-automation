@@ -55,4 +55,4 @@ regex = "1.11.1"
 
 [[bin]]
 name = "hc-homie5-automation"
-path = "bin/hc-homie5-automation/main.rs"
+path = "src/bin/hc-homie5-automation/main.rs"
