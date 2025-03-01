@@ -1,11 +1,6 @@
 # Stage 1: Base Image with Rust and Dependencies
 FROM ghcr.io/homie-homecontrol/hc-homie5-automation/base:latest AS chef
 
-# Install necessary system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libc6-dev lua5.4 liblua5.4-dev pkg-config && \
-    rm -rf /var/lib/apt/lists/*
-
 # Set the working directory
 WORKDIR /service/hc-homie5-automation/
 
