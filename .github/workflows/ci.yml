@@ -48,7 +48,7 @@ jobs:
     if: github.event_name == 'release' && github.event.action == 'created'
     strategy:
       matrix:
-        platform: [x86_64, aarch64, armv7]
+        platform: [x86_64, aarch64]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -203,5 +203,4 @@ jobs:
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-armv7
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64
