@@ -2,7 +2,7 @@ name: CI and Publish
 
 on:
   push:
-    branches: ["main"]
+    branches: ["optimize-build"]
   pull_request:
     branches: ["main"]
   release:
