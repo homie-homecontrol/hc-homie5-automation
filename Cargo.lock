@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5-automation"
-version = "0.1.3"
+version = "0.0.0-placeholder"
 dependencies = [
  "async-trait",
  "axum",
