@@ -10,19 +10,21 @@ COPY Cargo.toml Cargo.lock ./
 # Generate the cargo-chef recipe
 RUN cargo chef prepare --recipe-path recipe.json
 
-# Stage 2: Build Dependencies Layer
+# Stage 2: Build Dependencies Layer with Cache Mounts
 FROM chef AS builder-deps
 
 # Copy the generated recipe to the container
 COPY --from=chef /service/hc-homie5-automation/recipe.json recipe.json
 
-# Cook (build) the dependencies
-RUN cargo chef cook --release --recipe-path recipe.json
+# Cook (build) the dependencies using persistent cache mounts for Cargo registry and target directory
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/service/hc-homie5-automation/target \
+    cargo chef cook --release --recipe-path recipe.json
 
 # Stage 3: Build Application
 FROM chef AS builder
 
-# Copy the cooked dependencies
+# Copy the cooked dependencies from builder-deps
 COPY --from=builder-deps /usr/local/cargo /usr/local/cargo
 COPY --from=builder-deps /service/hc-homie5-automation/target target
 
@@ -33,9 +35,9 @@ COPY . .
 ARG VERSION=0.0.0-placeholder
 RUN sed -i "s/^version = \"0.0.0-placeholder\"/version = \"$VERSION\"/" Cargo.toml
 
-# Build the Rust application
+# Build the Rust application and strip debug symbols
 RUN cargo build --release && \
-    strip target/release/hc-homie5-automation  # Strip debug symbols
+    strip target/release/hc-homie5-automation
 
 # Stage 4: Runtime Image
 FROM debian:bookworm-slim AS runtime
