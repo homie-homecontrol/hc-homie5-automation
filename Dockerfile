@@ -62,7 +62,7 @@ RUN useradd --no-create-home --shell /usr/sbin/nologin appuser
 WORKDIR /service
 
 # Copy final binary directly from builder stage
-COPY --from=builder /service/hc-homie5-automation/target/release/hc-homie5-automation /service/
+COPY --from=chef /service/hc-homie5-automation/target/release/hc-homie5-automation /service/
 
 # Prepare runtime folders and permissions
 RUN mkdir -p /service/rules /service/virtual_devices && \
