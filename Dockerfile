@@ -16,12 +16,17 @@ FROM chef AS builder-deps
 # Copy the generated recipe to the container
 COPY --from=chef /service/hc-homie5-automation/recipe.json recipe.json
 
-# Run cargo chef cook using cache mounts.
-# We mount the Cargo registry as before and mount a temporary target directory.
-# After cargo chef cook finishes, copy the built artifacts to a persistent directory.
+# # Run cargo chef cook using cache mounts.
+# # We mount the Cargo registry as before and mount a temporary target directory.
+# # After cargo chef cook finishes, copy the built artifacts to a persistent directory.
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     --mount=type=cache,target=/tmp/target \
+#     cargo chef cook --release --recipe-path recipe.json && \
+#     cp -r /tmp/target /service/hc-homie5-automation/target
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/tmp/target \
     cargo chef cook --release --recipe-path recipe.json && \
+    ls -la /tmp/target && \
     cp -r /tmp/target /service/hc-homie5-automation/target
 
 # Stage 3: Build Application
