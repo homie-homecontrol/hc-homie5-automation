@@ -28,6 +28,7 @@ pub struct Settings {
 pub struct AppSettings {
     pub rules_config: ConfigBackend,
     pub virtual_devices_config: ConfigBackend,
+    pub lua_files_config: ConfigBackend,
     pub value_store_config: ValueStoreConfig,
     pub location: LocationConfig,
 }
@@ -177,6 +178,12 @@ impl Default for AppSettings {
                 "VIRTUAL_DEVICES_CONFIG",
                 ConfigBackend::File {
                     path: PathBuf::from("./virtual_devices"),
+                },
+            ),
+            lua_files_config: generic_setting(
+                "LUA_MODULE_CONFIG",
+                ConfigBackend::File {
+                    path: PathBuf::from("./lua"),
                 },
             ),
             value_store_config: generic_setting("VALUE_STORE_CONFIG", ValueStoreConfig::InMemory),

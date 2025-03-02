@@ -12,6 +12,7 @@ use hc_homie5_automation::{
     timer_manager::TimerEvent,
     virtual_devices::VirtualDeviceSpec,
 };
+use lua_files::handle_lua_files_changes_event;
 use mqtt_client::handle_mqtt_client_event;
 use rules::handle_rules_changes_event;
 use solar::handle_solar_event;
@@ -21,6 +22,7 @@ use virtual_devices::{handle_virtual_devices_changes_event, handle_virtual_devic
 mod app;
 mod cron;
 mod discovery;
+mod lua_files;
 mod mqtt_client;
 mod rules;
 mod solar;
@@ -37,6 +39,7 @@ define_event_multiplexer! {
         VirtualDevicesClient(HomieClientEvent) => virtual_devices,
         RulesChanges(ConfigItemEvent<Rule>) => rules_changes,
         VirtualDevicesChanges(ConfigItemEvent<VirtualDeviceSpec>) => vdevice_changes,
+        LuaFilesChanges(ConfigItemEvent<String>) => lua_changes,
         TimerEvent(TimerEvent) => timer_event,
         CronEvent(CronEvent) => cron_event,
         MqttClientEvent(MqttClientEvent) => mqtt_client_event,
@@ -60,6 +63,9 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
             }
             Event::VirtualDevicesClient(homie_client_event) => {
                 handle_virtual_devices_client_event(homie_client_event, state).await?
+            }
+            Event::LuaFilesChanges(config_file_event) => {
+                handle_lua_files_changes_event(config_file_event, state).await?
             }
             Event::TimerEvent(timer_event) => handle_timer_event(timer_event, state).await?,
             Event::CronEvent(cron_event) => handle_cron_event(cron_event, state).await?,
