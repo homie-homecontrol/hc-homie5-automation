@@ -38,9 +38,10 @@ RUN sed -i "s/^version = \"0.0.0-placeholder\"/version = \"$VERSION\"/" Cargo.to
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/service/hc-homie5-automation/target \
     cargo build --release && \
-    strip target/release/hc-homie5-automation
+    strip target/release/hc-homie5-automation && \
+    cp target/release/hc-homie5-automation /service/hc-homie5-automation
 
-# Stage 4: Minimal Runtime Image (Responsible for Final Copy)
+# Stage 4: Minimal Runtime Image
 FROM debian:bookworm-slim AS runtime
 
 # Install runtime dependencies
@@ -52,15 +53,15 @@ RUN useradd --no-create-home --shell /usr/sbin/nologin appuser
 
 WORKDIR /service
 
-# mount the same cache and extracts the binary
-RUN --mount=type=cache,target=/service/hc-homie5-automation/target \
-    cp /service/hc-homie5-automation/target/release/hc-homie5-automation /service/
+# Copy final binary directly from builder stage (always works, never breaks)
+COPY --from=builder /service/hc-homie5-automation/hc-homie5-automation /service/
 
 # Prepare runtime folders and permissions
 RUN mkdir -p /service/rules /service/virtual_devices && \
-    chown -R appuser:appuser /service
+    chown -R appuser:appuser /service && \
+    chmod 755  /service/hc-homie5-automation
 
-# Environment (no changes here)
+# Environment (same as before)
 ENV HCACTL_HOMIE_HOST="mqtt" \
     HCACTL_HOMIE_CLIENT_ID="hcactl-1" \
     HCACTL_HOMIE_DOMAIN="homie" \
