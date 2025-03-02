@@ -17,16 +17,18 @@ WORKDIR /service/hc-homie5-automation/
 # Copy the recipe from the previous stage
 COPY --from=chef /service/hc-homie5-automation/recipe.json recipe.json
 
-# Run cargo chef cook using cache mounts (for speed) and then persist into layered filesystem for reliability
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/service/hc-homie5-automation/target \
-    cargo chef cook --release --recipe-path recipe.json && \
-    cp -r /service/hc-homie5-automation/target /service/hc-homie5-automation/target_snapshot
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Stage 3: Build Final Application using prebuilt dependencies from builder-deps
-FROM chef AS builder
-
-WORKDIR /service/hc-homie5-automation/
+# # Run cargo chef cook using cache mounts (for speed) and then persist into layered filesystem for reliability
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     --mount=type=cache,target=/service/hc-homie5-automation/target \
+#     cargo chef cook --release --recipe-path recipe.json && \
+#     cp -r /service/hc-homie5-automation/target /service/hc-homie5-automation/target_snapshot
+#
+# # Stage 3: Build Final Application using prebuilt dependencies from builder-deps
+# FROM chef AS builder
+#
+# WORKDIR /service/hc-homie5-automation/
 
 # Copy full source code now
 COPY . .
@@ -35,14 +37,17 @@ COPY . .
 ARG VERSION=0.0.0-placeholder
 RUN sed -i "s/^version = \"0.0.0-placeholder\"/version = \"$VERSION\"/" Cargo.toml
 
-# Bring in prebuilt dependencies from builder-deps
-COPY --from=builder-deps /service/hc-homie5-automation/target_snapshot target
+# # Bring in prebuilt dependencies from builder-deps
+# COPY --from=builder-deps /service/hc-homie5-automation/target_snapshot target
 
 # Run the final build (only your application code should compile here)
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build --release && \
-    strip target/release/hc-homie5-automation && \
-    cp target/release/hc-homie5-automation /service/hc-homie5-automation
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     cargo build --release && \
+#     strip target/release/hc-homie5-automation && \
+#     cp target/release/hc-homie5-automation /service/hc-homie5-automation
+
+RUN cargo build --release && \
+    strip target/release/hc-homie5-automation
 
 # Stage 4: Minimal Runtime Image
 FROM debian:bookworm-slim AS runtime
@@ -57,7 +62,7 @@ RUN useradd --no-create-home --shell /usr/sbin/nologin appuser
 WORKDIR /service
 
 # Copy final binary directly from builder stage
-COPY --from=builder /service/hc-homie5-automation/hc-homie5-automation /service/
+COPY --from=builder /service/hc-homie5-automation/target/release/hc-homie5-automation /service/
 
 # Prepare runtime folders and permissions
 RUN mkdir -p /service/rules /service/virtual_devices && \
