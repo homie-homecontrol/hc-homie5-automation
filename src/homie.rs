@@ -20,7 +20,6 @@ impl HomieControllerClient {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn protocol(&self) -> &Homie5ControllerProtocol {
         &self.protocol
     }
