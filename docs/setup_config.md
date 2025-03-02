@@ -32,28 +32,29 @@ Settings are passed via environment variables. The environment variables are pre
 | ------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------- |
 | `HCACTL_RULES_CONFIG`           | Specifies the backend for rule storage            | `file:/path/to/rules`,<br/>`mqtt:some/topic`,<br /> `kubernetes:config-name[,namespace]`           | file:/service/rules           | `"mqtt:hcactl/rules"`                           |
 | `HCACTL_VIRTUAL_DEVICES_CONFIG` | Specifies the backend for virtual devices storage | `file:/path/to/virtual_devices`,<br />`mqtt:some/topic`,<br />`kubernetes:config-name[,namespace]` | file:/service/virtual_devices | `"kubernetes:hcactl-virtual-devices,smarthome"` |
+| `HCACTL_LUA_MODULE_CONFIG`      | Specifies the backend for lua module storage      | `file:/path/to/lua`,<br/>`mqtt:some/topic`,<br /> `kubernetes:config-name[,namespace]`             | file:/service/lua             | `"file:/data/lua_scripts"`                      |
 | `HCACTL_VALUE_STORE_CONFIG`     | Defines how values are stored                     | `inmemory`,<br />`sqlite:/path/to/database.db`,<br />`kubernetes:secret`                           | inmemory                      | `"sqlite:/sevice/values.db"`                    |
 | `HCACTL_LOCATION`               | Defines the geographical location                 | `<latitude>,<longitude>,<elevation>`                                                               | `0,0,0`                       | `"48.1351,11.5820,519"`                         |
 
-### Rules and Virtual Devices config backends
+### Rules, Virtual Devices and Lua Modules config backends
 
-For rules and virtual devices `hc-homie5-automation` supports multiple backends as input.
+For rules, virtual devices and lua modules `hc-homie5-automation` supports multiple backends as input.
 
 - **File:**
 
-    Will read rules and virtual devices specifications from yaml files inside the specified folder.
+    Will read rules, virtual devices or lua modules specifications/files from yaml files inside the specified folder.
 
     - Example: `file:/path/to/config`
 
 - **MQTT:**
 
-    Will read rules and virtual devices specifications from all subtopics with the specified topic. Each topic is treated like a yaml file in the file system. Ensure valid yaml data is published under these topics.
+    Will read rules, virtual devices or lua modules specifications/files from all subtopics with the specified topic. Each topic is treated like a yaml file in the file system. Ensure valid yaml data or lua code is published under these topics.
 
     - Example: `mqtt:some/topic`
 
 - **Kubernetes:**
 
-    Will read rules and virtual devices specifications from a kubernetes `ConfigMap`. Each data field in the `ConfigMap` is treated like a yaml file in the file system. Ensure valid yaml data is published under these fields.
+    Will read rules, virtual devices or lua modules specifications/files from a kubernetes `ConfigMap`. Each data field in the `ConfigMap` is treated like a yaml file in the file system. Ensure valid yaml data or lua code is stored under these fields.
 
     - Example: `kubernetes:config-name[,namespace]`
     - If no namespace is provided, the `default` namespace is used.
@@ -126,12 +127,14 @@ services:
             HCACTL_HOMIE_CTRL_ID: homecontrol-automation
             HCACTL_VIRTUAL_DEVICES_CONFIG: file:./data/virtual_devices
             HCACTL_RULES_CONFIG: file:./data/rules
+            HCACTL_LUA_MODULES_CONFIG: file:./data/lua
             HCACTL_VALUE_STORE_CONFIG: sqlite:./data/store/data.db
             HCACTL_LOGLEVEL: debug,info,warn,error
             TZ: "Europe/Berlin"
         volumes:
             - ./rules:/service/data/rules
             - ./virtual_devices:/service/data/virtual_devices
+            - ./lua:/service/data/lua
             - ./store:/service/data/store
             - /usr/share/zoneinfo/Europe/Berlin:/etc/localtime:ro
 ```

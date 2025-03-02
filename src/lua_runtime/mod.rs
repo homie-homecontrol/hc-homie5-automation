@@ -1,17 +1,21 @@
+mod custom_loader;
 mod device_ref;
 mod event;
 mod homie;
 mod homie_value;
+mod lua_module_manager;
 mod propery_ref;
 mod timer;
 mod utils;
 mod value_store;
 mod virtual_device;
 
+pub use custom_loader::*;
 pub use device_ref::*;
 pub use event::*;
 pub use homie::*;
 pub use homie_value::*;
+pub use lua_module_manager::*;
 pub use propery_ref::*;
 pub use timer::*;
 pub use utils::*;

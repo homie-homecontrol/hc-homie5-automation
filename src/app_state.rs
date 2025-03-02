@@ -4,9 +4,9 @@ use simple_kv_store::KeyValueStore;
 use tokio::sync::mpsc::Sender;
 
 use crate::{
-    cron_manager::CronManager, device_manager::DeviceManager, mqtt_client::ManagedMqttClient,
-    rule_manager::RuleManager, rules::RuleContext, solar_events::SolarEventManager, timer_manager::TimerManager,
-    virtual_devices::VirtualDeviceManager,
+    cron_manager::CronManager, device_manager::DeviceManager, lua_runtime::LuaModuleManager,
+    mqtt_client::ManagedMqttClient, rule_manager::RuleManager, rules::RuleContext, solar_events::SolarEventManager,
+    timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
 };
 
 #[derive(Debug)]
@@ -32,8 +32,10 @@ pub struct AppState {
     pub discovery_state: ConnectionState,
     pub virtual_devices_state: ConnectionState,
     pub value_store: KeyValueStore,
+    pub lua_module_manager: LuaModuleManager,
     pub rule_watcher_handle: ConfigItemWatcherHandle,
     pub virtual_devices_watcher_handle: ConfigItemWatcherHandle,
+    pub lua_files_watcher_handle: ConfigItemWatcherHandle,
 }
 
 impl AppState {
@@ -45,6 +47,7 @@ impl AppState {
             vdm: &self.vdm,
             mqtt_client: &self.mqtt_client,
             value_store: &self.value_store,
+            lmm: &self.lua_module_manager,
         }
     }
 
@@ -66,6 +69,14 @@ impl AppState {
                 }
                 Err(e) => {
                     log::error!("Error starting virtual devices config watcher. {:?}", e);
+                }
+            }
+            match self.lua_files_watcher_handle.start().await {
+                Ok(_) => {
+                    log::debug!("Started lua module config watcher");
+                }
+                Err(e) => {
+                    log::error!("Error starting lua module config watcher. {:?}", e);
                 }
             }
         }

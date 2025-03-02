@@ -150,6 +150,8 @@ triggers:
 actions:
   - type: run
     script: |-
+      local m = require("mymod")
+      m.hello()
       local prop = event.prop
       print("Prop:", prop)
       print("From value:", event.from_value)

@@ -6,6 +6,12 @@
 
 The Lua Runtime is a powerful tool for automating and controlling Homie devices. It provides a range of commands and functions that can be used to interact with devices, set values, and trigger actions. This document provides an overview of the available commands and how to use them.
 
+## Modules
+
+You can require modules available and defined under the `HCACTL_LUA_MODULES_CONFIG` setting within the code block for the lua script.
+This way you can create general purpose tools or other reusable lua extensions.
+Please note that subfolders are not supported.
+
 ## Commands
 
 The following commands are available in the Lua Runtime:

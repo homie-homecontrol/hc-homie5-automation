@@ -21,8 +21,8 @@ pub use timer::*;
 pub use virtual_devices::*;
 
 use crate::{
-    device_manager::DeviceManager, mqtt_client::ManagedMqttClient, rule_manager::RuleManager,
-    timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
+    device_manager::DeviceManager, lua_runtime::LuaModuleManager, mqtt_client::ManagedMqttClient,
+    rule_manager::RuleManager, timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
 };
 
 pub struct RuleContext<'a> {
@@ -32,4 +32,5 @@ pub struct RuleContext<'a> {
     pub vdm: &'a VirtualDeviceManager,
     pub mqtt_client: &'a ManagedMqttClient,
     pub value_store: &'a KeyValueStore,
+    pub lmm: &'a LuaModuleManager,
 }

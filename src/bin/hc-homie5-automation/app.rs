@@ -1,8 +1,9 @@
-use std::{fs, time::Duration};
+use std::{fs, iter, time::Duration};
 
 use color_eyre::eyre::Result;
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState, ConnectionState},
+    lua_runtime::LuaModuleManager,
     utils::throttle_channel,
 };
 use simple_kv_store::{InMemoryStore, KeyValueStore, KubernetesStore, SQLiteStore};
@@ -10,7 +11,7 @@ use tokio::sync::mpsc::{self};
 
 use crate::eventloop::EventMultiPlexer;
 
-use config_watcher::{backend, config_item_watcher::run_config_item_watcher, YamlTokenizer};
+use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::{HomieClientHandle, MqttClientConfig};
 use hc_homie5_automation::{
     cron_manager::CronManager,
@@ -23,6 +24,13 @@ use hc_homie5_automation::{
     timer_manager::TimerManager,
     virtual_devices::{VirtualDeviceManager, VirtualDeviceSpec},
 };
+pub struct LuaFileTokenizer;
+
+impl Tokenizer for LuaFileTokenizer {
+    fn tokenize<'a>(&self, content: &'a str) -> Box<dyn Iterator<Item = &'a str> + 'a> {
+        Box::new(iter::once(content))
+    }
+}
 
 pub async fn initialize_app(
 ) -> Result<(EventMultiPlexer, HomieClientHandle, HomieClientHandle, MqttClientHandle, SolarEventHandle, AppState)> {
@@ -131,6 +139,33 @@ pub async fn initialize_app(
         deserialize_virtual_devices,
     )?;
 
+    let deserialize_lua_file = |doc: &str| -> std::result::Result<String, WatcherError> { Ok(doc.to_string()) };
+
+    let (lua_files_watcher_handle, lua_files_receiver) = run_config_item_watcher::<String, _>(
+        || match &settings.app.lua_files_config {
+            ConfigBackend::File { path } => {
+                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
+                    panic!("Configured Lua modules folder [{}] does not exist!", path.as_os_str().to_string_lossy())
+                });
+                backend::run_config_file_watcher(absolute_path, "*.lua", Duration::from_millis(500))
+            }
+            ConfigBackend::Kubernetes { name, namespace } => {
+                log::debug!("Using Kubernetes backend for lua modules");
+                backend::run_configmap_watcher(name.to_string(), namespace.to_string())
+            }
+            ConfigBackend::Mqtt { topic } => {
+                let mco = MqttClientConfig::new(&settings.homie.hostname)
+                    .client_id(format!("{}-cfg-lua", &settings.homie.client_id))
+                    .port(settings.homie.port)
+                    .username(&settings.homie.username)
+                    .password(&settings.homie.password);
+                log::debug!("Using Mqtt backend for lua modules");
+                backend::run_mqtt_watcher(mco.to_mqtt_options(), topic, 1024)
+            }
+        },
+        &LuaFileTokenizer,
+        deserialize_lua_file,
+    )?;
     // Simple Value store
     // =====================================================
     let value_store = match &settings.app.value_store_config {
@@ -153,6 +188,7 @@ pub async fn initialize_app(
         throttle_channel(rules_receiver, Duration::from_millis(10)),
         // throttle new device detection and creation to make sure not to overload the mqtt broker
         throttle_channel(vdevices_receiver, Duration::from_millis(10)),
+        lua_files_receiver,
         timers_receiver,
         cron_receiver,
         mqtt_event_receiver,
@@ -178,9 +214,11 @@ pub async fn initialize_app(
             mqtt_state: ConnectionState::Init,
             discovery_state: ConnectionState::Init,
             virtual_devices_state: ConnectionState::Init,
+            lua_module_manager: LuaModuleManager::new(),
             value_store,
             rule_watcher_handle: rules_watcher_handle,
             virtual_devices_watcher_handle: vdevices_watcher_handle,
+            lua_files_watcher_handle,
         },
     ))
 }

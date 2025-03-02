@@ -1,5 +1,7 @@
 use super::RuleContext;
-use crate::lua_runtime::{LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDecvice};
+use crate::lua_runtime::{
+    setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDecvice,
+};
 use crate::rules::{MapSetFrom, RuleAction, TimerDef};
 use crate::solar_events::SolarEvent;
 use crate::{
@@ -250,6 +252,8 @@ pub(crate) async fn run_script(
     globals.set("timers", lua_timer).into_lua_err()?;
     globals.set("value_store", lua_value_store).into_lua_err()?;
     globals.set("event", lua_event).into_lua_err()?;
+
+    setup_custom_loader(&lua, ctx.lmm.file_contents()).await?;
 
     // run the script
     log::trace!("executing script");
