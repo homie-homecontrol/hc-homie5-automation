@@ -46,27 +46,19 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-  docker:
+  docker-arm:
     name: Docker Image
-    runs-on: ubuntu-latest
+    runs-on: buildjet-8vcpu-ubuntu-2204-arm
     if: github.event_name == 'release' && github.event.action == 'created'
     strategy:
       matrix:
-        platform: [linux/amd64, linux/arm64]
+        platform: [linux/arm64]
     permissions:
       contents: read
       packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Determine version
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-          else
-            echo "VERSION=0.0.0-placeholder" >> $GITHUB_ENV
-          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -80,6 +72,70 @@ jobs:
           path: .buildx-cache
           key: buildx-cache-${{ runner.os }}-${{ matrix.platform }}
           #key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Determine version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          else
+            echo "VERSION=0.0.0-placeholder" >> $GITHUB_ENV
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image for ${{ matrix.platform }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'armv7' }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+          cache-from: type=local,src=.buildx-cache
+          cache-to: type=local,dest=.buildx-cache,mode=max
+
+  docker:
+    name: Docker Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'created'
+    strategy:
+      matrix:
+        platform: [linux/amd64]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Restore Docker Buildx Cache
+        uses: actions/cache@v3
+        with:
+          path: .buildx-cache
+          key: buildx-cache-${{ runner.os }}-${{ matrix.platform }}
+          #key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Determine version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          else
+            echo "VERSION=0.0.0-placeholder" >> $GITHUB_ENV
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -105,7 +161,9 @@ jobs:
   manifest:
     name: Create Multi-Arch Manifest
     runs-on: ubuntu-latest
-    needs: docker
+    needs:
+      - docker
+      - docker-arm
     if: github.event_name == 'release' && github.event.action == 'created'
     permissions:
       contents: read
