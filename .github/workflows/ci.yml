@@ -48,7 +48,7 @@ jobs:
 
   docker-arm:
     name: Docker Image
-    runs-on: buildjet-8vcpu-ubuntu-2204-arm
+    runs-on: buildjet-4vcpu-ubuntu-2204-arm
     if: github.event_name == 'release' && github.event.action == 'created'
     strategy:
       matrix:
