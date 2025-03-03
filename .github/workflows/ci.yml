@@ -50,9 +50,6 @@ jobs:
     name: Docker Image
     runs-on: buildjet-4vcpu-ubuntu-2204-arm
     if: github.event_name == 'release' && github.event.action == 'created'
-    strategy:
-      matrix:
-        platform: [linux/arm64]
     permissions:
       contents: read
       packages: write
@@ -70,8 +67,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: .buildx-cache
-          key: buildx-cache-${{ runner.os }}-${{ matrix.platform }}
-          #key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: buildx-cache-${{ runner.os }}-arm64
 
       - name: Determine version
         run: |
@@ -88,15 +84,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image for ${{ matrix.platform }}
+      - name: Build and push image for arm64
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'armv7' }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-arm64
           build-args: |
             VERSION=${{ env.VERSION }}
           cache-from: type=local,src=.buildx-cache
@@ -106,9 +101,6 @@ jobs:
     name: Docker Image
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'created'
-    strategy:
-      matrix:
-        platform: [linux/amd64]
     permissions:
       contents: read
       packages: write
@@ -126,8 +118,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: .buildx-cache
-          key: buildx-cache-${{ runner.os }}-${{ matrix.platform }}
-          #key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: buildx-cache-${{ runner.os }}-amd64
 
       - name: Determine version
         run: |
@@ -144,15 +135,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image for ${{ matrix.platform }}
+      - name: Build and push image for amd64
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'armv7' }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-amd64
           build-args: |
             VERSION=${{ env.VERSION }}
           cache-from: type=local,src=.buildx-cache
