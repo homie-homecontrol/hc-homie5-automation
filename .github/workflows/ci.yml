@@ -47,7 +47,7 @@ jobs:
         run: cargo test --verbose
 
   docker-arm:
-    name: Docker Image
+    name: Docker Image (arm64)
     runs-on: buildjet-4vcpu-ubuntu-2204-arm
     if: github.event_name == 'release' && github.event.action == 'created'
     permissions:
@@ -98,7 +98,7 @@ jobs:
           cache-to: type=local,dest=.buildx-cache,mode=max
 
   docker:
-    name: Docker Image
+    name: Docker Image (amd64)
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'created'
     permissions:
