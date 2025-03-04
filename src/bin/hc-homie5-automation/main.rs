@@ -3,10 +3,30 @@ use app_env::{initialize_logging, initialize_panic_handler};
 use color_eyre::eyre::Result;
 use eventloop::run_event_loop;
 use hc_homie5_automation::app_state::AppEvent;
-use tokio::runtime;
+use tokio::{
+    signal::unix::{signal, SignalKind},
+    sync::mpsc,
+};
 mod app;
 mod app_env;
 mod eventloop;
+
+// Check for SIGINT, SIGTERM and SIGQUIT signals to exit the application cleanly
+async fn signal_handler(app_event_sender: mpsc::Sender<AppEvent>) {
+    let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+    let mut sigquit = signal(SignalKind::quit()).expect("Failed to register SIGQUIT handler");
+
+    tokio::select! {
+        _ = sigint.recv() => log::info!("Received SIGINT"),
+        _ = sigterm.recv() => log::info!("Received SIGTERM"),
+        _ = sigquit.recv() => log::info!("Received SIGQUIT"),
+    }
+
+    if let Err(err) = app_event_sender.send(AppEvent::Exit).await {
+        log::error!("Error sending exit event: {:#?}", err);
+    }
+}
 
 async fn run_application() -> Result<()> {
     initialize_logging()?;
@@ -21,22 +41,9 @@ async fn run_application() -> Result<()> {
         mut state,
     ) = initialize_app().await?;
 
-    // Set Ctrl-C handler to exit the application cleanly
-    let ctrl_sender = state.app_event_sender.clone();
-    if let Err(err) = ctrlc::set_handler(move || {
-        let rt = runtime::Runtime::new().unwrap();
-
-        let ctrl_sender = ctrl_sender.clone();
-        rt.block_on(async move {
-            ctrl_sender
-                .send(AppEvent::Exit)
-                .await
-                .expect("Error during application shutdown!");
-        });
-    }) {
-        log::error!("Fatal Error: Cannot set ctrl-c app exit handler:\n{:#?}", err);
-        panic!("Will exit now");
-    }
+    // Set handler to exit the application cleanly
+    let exit_sender = state.app_event_sender.clone();
+    tokio::spawn(signal_handler(exit_sender));
 
     run_event_loop(&mut event_multiplexer, &mut state).await?;
 
