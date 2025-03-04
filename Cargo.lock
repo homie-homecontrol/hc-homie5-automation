@@ -350,9 +350,9 @@ dependencies = [
 
 [[package]]
 name = "config_watcher"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2e961fab3ac88aafd0785d66420fb8f0791857b5b188aae9ebeff65da8fe527"
+checksum = "432673bbf9d468db6e68f8efa656487b3ce3c7a145991f936298cfaa5d9db463"
 dependencies = [
  "futures",
  "futures-stream-ext",
