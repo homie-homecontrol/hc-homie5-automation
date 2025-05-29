@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
+use crate::settings::ENV_PREFIX;
 use color_eyre::eyre::Result;
 use directories::ProjectDirs;
-use hc_homie5_automation::settings::ENV_PREFIX;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{self, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer};
 

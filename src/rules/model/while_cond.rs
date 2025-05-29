@@ -73,7 +73,7 @@ impl TimeWhileCondition {
                 current_time <= *before
                     && weekdays
                         .as_ref()
-                        .map_or(true, |days| days.contains(&map_weekday(current_weekday)))
+                        .is_none_or(|days| days.contains(&map_weekday(current_weekday)))
             }
 
             // After: only `after` is required
@@ -81,7 +81,7 @@ impl TimeWhileCondition {
                 current_time >= *after
                     && weekdays
                         .as_ref()
-                        .map_or(true, |days| days.contains(&map_weekday(current_weekday)))
+                        .is_none_or(|days| days.contains(&map_weekday(current_weekday)))
             }
 
             // Weekdays: only `weekdays` is required

@@ -4,7 +4,7 @@ use serde::de;
 use serde::{Deserialize, Deserializer};
 use std::ops::Deref;
 
-use crate::settings::SETTINGS;
+use crate::homie::get_default_homie_domain;
 
 // Enum to handle both string and object representations
 #[derive(Clone, Deserialize, Debug)]
@@ -62,12 +62,7 @@ impl<'de> Deserialize<'de> for Subject {
                 device_id,
                 node_id,
                 prop_id,
-            } => Ok(PropertyRef::new(
-                homie_domain.unwrap_or(SETTINGS.homie.homie_domain.clone()),
-                device_id,
-                node_id,
-                prop_id,
-            )),
+            } => Ok(PropertyRef::new(homie_domain.unwrap_or(get_default_homie_domain()), device_id, node_id, prop_id)),
         };
         property_ref.map(Subject)
     }
@@ -109,7 +104,7 @@ impl FromSubjectStr for PropertyRef {
         let homie_domain = if parts.len() == 4 {
             HomieDomain::try_from(parts[0].to_string()).map_err(|e| eyre!(format!("{}", e)))?
         } else {
-            SETTINGS.homie.homie_domain.clone()
+            get_default_homie_domain()
         };
         let device_id = parts[parts.len() - 3]
             .to_string()
@@ -146,7 +141,7 @@ impl FromSubjectStr for NodeRef {
         let homie_domain = if parts.len() == 3 {
             HomieDomain::try_from(parts[0].to_string()).map_err(|e| eyre!(format!("{}", e)))?
         } else {
-            SETTINGS.homie.homie_domain.clone()
+            get_default_homie_domain()
         };
         let device_id = parts[parts.len() - 2]
             .to_string()
@@ -179,7 +174,7 @@ impl FromSubjectStr for DeviceRef {
         let homie_domain = if parts.len() == 2 {
             HomieDomain::try_from(parts[0].to_string()).map_err(|e| eyre!(format!("{}", e)))?
         } else {
-            SETTINGS.homie.homie_domain.clone()
+            get_default_homie_domain()
         };
         let device_id = parts[parts.len() - 1]
             .to_string()

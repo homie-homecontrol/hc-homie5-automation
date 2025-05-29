@@ -7,7 +7,6 @@ pub mod lua_runtime;
 pub mod mqtt_client;
 pub mod rule_manager;
 pub mod rules;
-pub mod settings;
 pub mod solar_events;
 pub mod timer_manager;
 pub mod unwrap_or_exit;

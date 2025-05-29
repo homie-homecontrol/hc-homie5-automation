@@ -934,9 +934,9 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce8c3e4cf228e1be48ca64677eca967483e9edf73b65f96e5559ce8e2d45dcfb"
+checksum = "2fd43d76cce7a66c37c13352e35797f23954ff0b78ef3f5339540ef213be0f05"
 dependencies = [
  "hc-homie5-macros",
  "homie5",
@@ -998,9 +998,9 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5-smarthome"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c8900bfefe5bde5737014688e9f6a0a0733b691b2b80f43fad2bc4e86742c31"
+checksum = "0879e0501920c744905d4cbf28df891fb39f03f3fd179e76492a0199a6df068c"
 dependencies = [
  "chrono",
  "homie5",
@@ -1042,9 +1042,9 @@ dependencies = [
 
 [[package]]
 name = "homie5"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75a42df2e83529272c3db933f618028435a77db9c515b3a2e06247a9d640a1d9"
+checksum = "cb83865e069103e6145afce0abad6b4f4be9362ebaacda0d6be4d92e23874054"
 dependencies = [
  "chrono",
  "log",

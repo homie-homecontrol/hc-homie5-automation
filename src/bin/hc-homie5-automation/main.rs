@@ -10,6 +10,7 @@ use tokio::{
 mod app;
 mod app_env;
 mod eventloop;
+mod settings;
 
 // Check for SIGINT, SIGTERM and SIGQUIT signals to exit the application cleanly
 async fn signal_handler(app_event_sender: mpsc::Sender<AppEvent>) {

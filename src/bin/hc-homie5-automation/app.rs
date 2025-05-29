@@ -3,6 +3,7 @@ use std::{fs, iter, time::Duration};
 use color_eyre::eyre::Result;
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState, ConnectionState},
+    homie::set_default_homie_domain,
     lua_runtime::LuaModuleManager,
     utils::throttle_channel,
 };
@@ -11,6 +12,7 @@ use tokio::sync::mpsc::{self};
 
 use crate::eventloop::EventMultiPlexer;
 
+use crate::settings::{ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::{HomieClientHandle, MqttClientConfig};
 use hc_homie5_automation::{
@@ -19,7 +21,6 @@ use hc_homie5_automation::{
     mqtt_client::{run_mqtt_client, MqttClientHandle},
     rule_manager::RuleManager,
     rules::Rule,
-    settings::{ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS},
     solar_events::{run_solar_event_task, SolarEventHandle},
     timer_manager::TimerManager,
     virtual_devices::{VirtualDeviceManager, VirtualDeviceSpec},
@@ -35,6 +36,8 @@ impl Tokenizer for LuaFileTokenizer {
 pub async fn initialize_app(
 ) -> Result<(EventMultiPlexer, HomieClientHandle, HomieClientHandle, MqttClientHandle, SolarEventHandle, AppState)> {
     let settings = &SETTINGS;
+
+    set_default_homie_domain(settings.homie.homie_domain.clone());
 
     let (app_event_sender, app_event_receiver) = mpsc::channel::<AppEvent>(CHANNEL_CAPACITY);
 
@@ -64,8 +67,13 @@ pub async fn initialize_app(
     // Setup homie device for controller
     // =====================================================
 
-    let (vdm, homie_ctl_device_client_handle, homie_device_event_receiver) =
-        VirtualDeviceManager::new(dm.clone(), mqtt_client.clone(), app_event_sender.clone(), settings).await?;
+    let (vdm, homie_ctl_device_client_handle, homie_device_event_receiver) = VirtualDeviceManager::new(
+        dm.clone(),
+        mqtt_client.clone(),
+        app_event_sender.clone(),
+        settings.homie.clone().into(),
+    )
+    .await?;
 
     // Setup Timers and Cron
     // =====================================================

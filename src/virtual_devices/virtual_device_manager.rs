@@ -8,10 +8,21 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::{
     app_state::AppEvent, cfg_files_tracker::CfgFilesTracker, device_manager::DeviceManager,
-    mqtt_client::ManagedMqttClient, settings::Settings,
+    mqtt_client::ManagedMqttClient,
 };
 
 use super::{property_indexer::PropertyIndexer, VirtualDevice, VirtualDeviceSpec};
+
+pub struct VirtualDeviceManagerConfig {
+    pub hostname: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub client_id: String,
+    pub homie_domain: HomieDomain,
+    pub controller_id: HomieID,
+    pub controller_name: String,
+}
 
 #[homie_device]
 #[derive(Clone)]
@@ -31,34 +42,34 @@ impl VirtualDeviceManager {
         dm: DeviceManager,
         mqtt_client: ManagedMqttClient,
         app_event_sender: mpsc::Sender<AppEvent>,
-        settings: &Settings,
+        config: VirtualDeviceManagerConfig,
     ) -> Result<(Self, HomieClientHandle, mpsc::Receiver<HomieClientEvent>)> {
-        log::debug!("HomieDomain: {:?}", settings.homie.homie_domain);
+        log::debug!("HomieDomain: {:?}", config.homie_domain);
 
         let index = Arc::new(RwLock::new(PropertyIndexer::new()));
 
         let (homie_proto, last_will) =
-            Homie5DeviceProtocol::new(settings.homie.controller_id.clone(), settings.homie.homie_domain.clone());
+            Homie5DeviceProtocol::new(config.controller_id.clone(), config.homie_domain.clone());
 
-        let homie_client_options = MqttClientConfig::new(&settings.homie.hostname)
-            .client_id(format!("{}-ctrl", &settings.homie.client_id))
-            .port(settings.homie.port)
-            .username(&settings.homie.username)
-            .password(&settings.homie.password)
+        let homie_client_options = MqttClientConfig::new(&config.hostname)
+            .client_id(format!("{}-ctrl", &config.client_id))
+            .port(config.port)
+            .username(&config.username)
+            .password(&config.password)
             .last_will(Some(last_will));
 
         let (device_client_handle, homie_client, homie_event_receiver) =
             run_homie_client(homie_client_options.to_mqtt_options(), homie_client_options.mqtt_channel_size)?;
 
         let device_desc = DeviceDescriptionBuilder::new()
-            .name(settings.homie.controller_name.clone())
+            .name(config.controller_name.clone())
             .build();
 
         Ok((
             Self {
                 status: HomieDeviceStatus::Init,
                 ctrl_proto: Homie5ControllerProtocol::new(),
-                device_ref: DeviceRef::new(settings.homie.homie_domain.clone(), settings.homie.controller_id.clone()),
+                device_ref: DeviceRef::new(config.homie_domain, config.controller_id),
                 homie_proto,
                 homie_client,
                 devices: Arc::new(RwLock::new(HashMap::new())),
