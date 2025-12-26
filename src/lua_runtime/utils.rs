@@ -1,5 +1,8 @@
 use mlua::{ExternalResult, LuaSerdeExt, UserData};
+use rumqttc::QoS;
 use std::time::Duration;
+
+use crate::mqtt_client::ManagedMqttClient;
 
 pub struct LuaHttpBody(String);
 
@@ -13,13 +16,19 @@ impl UserData for LuaHttpBody {
     }
 }
 
-pub struct LuaUtils;
+pub struct LuaUtils {
+    pub mqtt_client: ManagedMqttClient,
+}
 
 impl UserData for LuaUtils {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("sleep", |_, _, time: u64| async move {
             tokio::time::sleep(Duration::from_millis(time)).await;
             Ok(())
+        });
+        methods.add_async_method("json", |lua, _, data: String| async move {
+            let json_value: serde_json::Value = serde_json::from_str(&data).into_lua_err()?;
+            lua.to_value(&json_value)
         });
         methods.add_async_method("http_get", |_, _, uri: String| async move {
             let text = reqwest::get(&uri).await.into_lua_err()?.text().await.into_lua_err()?;
@@ -52,5 +61,22 @@ impl UserData for LuaUtils {
             let text = response.text().await.into_lua_err()?;
             Ok(LuaHttpBody(text))
         });
+        methods.add_async_method(
+            "mqtt_publish",
+            |_, this, (topic, payload, qos, retained): (String, String, Option<i64>, Option<bool>)| async move {
+                let qos = match qos.unwrap_or(0) {
+                    0 => QoS::AtMostOnce,
+                    1 => QoS::AtLeastOnce,
+                    2 => QoS::ExactlyOnce,
+                    _ => QoS::AtMostOnce,
+                };
+                let retained = retained.unwrap_or(false);
+                this.mqtt_client
+                    .publish(topic, qos, retained, payload)
+                    .await
+                    .into_lua_err()?;
+                Ok(())
+            },
+        );
     }
 }

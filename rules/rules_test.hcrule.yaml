@@ -1,4 +1,29 @@
 ---
+name: test-shelly-2
+triggers:
+  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:0
+    trigger_value:
+      operator: matchAlways
+  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:1
+    trigger_value:
+      operator: matchAlways
+  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:2
+    trigger_value:
+      operator: matchAlways
+  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:3
+    trigger_value:
+      operator: matchAlways
+actions:
+  - type: run
+    script: |
+      print("Shelly status: ", event.value)
+      local parsed = utils:json(event.value)
+      print("Switch state: ", parsed.id, parsed.output)
+      if parsed.id == 0 and parsed.output == true then
+        utils:mqtt_publish("shellies/shellypstripg4-d885aceb6c8c/command/switch:3", "toggle")
+      end
+
+---
 name: query-test-vec
 triggers:
   - queries:
