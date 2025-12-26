@@ -23,10 +23,17 @@ impl UserData for LuaEvent {
             Ok(res)
         });
         fields.add_field_method_get("value", |lua, this| {
-            let res = if let Some(value) = this.event.value().map(|v| LuaHomieValue(v.clone())) {
-                value.into_lua(lua)?
-            } else {
-                mlua::Value::Nil
+            let res = match &this.event {
+                RuleTriggerEvent::PropertyChanged { to, .. } => LuaHomieValue(to.clone().into_owned()).into_lua(lua)?,
+                RuleTriggerEvent::PropertyTriggered { value, .. } => {
+                    LuaHomieValue(value.clone().into_owned()).into_lua(lua)?
+                }
+
+                RuleTriggerEvent::Timer(_) => mlua::Value::Nil,
+                RuleTriggerEvent::Cron(_) => mlua::Value::Nil,
+                RuleTriggerEvent::Mqtt(mqtt_event) => lua.create_string(&mqtt_event.payload)?.into_lua(lua)?,
+                RuleTriggerEvent::OnSet { value, .. } => lua.create_string(&**value)?.into_lua(lua)?,
+                RuleTriggerEvent::Solar(_) => mlua::Value::Nil,
             };
             Ok(res)
         });

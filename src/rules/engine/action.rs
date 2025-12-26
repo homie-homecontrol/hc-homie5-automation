@@ -243,10 +243,14 @@ pub(crate) async fn run_script(
         event: trigger_event.to_owned(),
     };
 
+    let lua_utils = LuaUtils {
+        mqtt_client: ctx.mqtt_client.clone(),
+    };
+
     // Set the function in the Lua environment
     let globals = lua.globals();
 
-    globals.set("utils", LuaUtils).into_lua_err()?;
+    globals.set("utils", lua_utils).into_lua_err()?;
     globals.set("homie", lua_homie).into_lua_err()?;
     globals.set("virtual_device", lua_virtual_device).into_lua_err()?;
     globals.set("timers", lua_timer).into_lua_err()?;
