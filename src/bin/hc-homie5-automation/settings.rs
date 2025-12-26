@@ -5,7 +5,7 @@ use rand::{distr::Alphanumeric, Rng};
 use simple_kv_store::KubernetesResource;
 use std::{env, path::PathBuf, str::FromStr};
 
-use crate::unwrap_or_exit::UnwrapOrExit;
+use hc_homie5_automation::{unwrap_or_exit::UnwrapOrExit, virtual_devices::VirtualDeviceManagerConfig};
 
 // pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| env!("CARGO_CRATE_NAME").replace('-', "_").to_uppercase());
 pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| "HCACTL".to_string());
@@ -199,7 +199,7 @@ impl Default for AppSettings {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HomieSettings {
     pub hostname: String,
     pub port: u16,
@@ -242,6 +242,21 @@ impl Default for HomieSettings {
             homie_domain,
             controller_id,
             controller_name,
+        }
+    }
+}
+
+impl From<HomieSettings> for VirtualDeviceManagerConfig {
+    fn from(value: HomieSettings) -> Self {
+        Self {
+            hostname: value.hostname,
+            port: value.port,
+            username: value.username,
+            password: value.password,
+            client_id: value.client_id,
+            homie_domain: value.homie_domain,
+            controller_id: value.controller_id,
+            controller_name: value.controller_name,
         }
     }
 }

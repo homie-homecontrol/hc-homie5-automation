@@ -1,6 +1,19 @@
+use std::sync::Mutex;
+
 use color_eyre::eyre::Result;
 use hc_homie5::HomieMQTTClient;
-use homie5::{Homie5ControllerProtocol, HomieValue, PropertyRef};
+use homie5::{Homie5ControllerProtocol, HomieDomain, HomieValue, PropertyRef};
+use once_cell::sync::Lazy;
+
+static DEFAULT_HOMIE_DOMAIN: Lazy<Mutex<HomieDomain>> = Lazy::new(|| Mutex::new(HomieDomain::Default));
+
+pub fn set_default_homie_domain(domain: HomieDomain) {
+    *DEFAULT_HOMIE_DOMAIN.lock().unwrap() = domain;
+}
+
+pub fn get_default_homie_domain() -> HomieDomain {
+    DEFAULT_HOMIE_DOMAIN.lock().unwrap().clone()
+}
 
 #[derive(Clone)]
 pub struct HomieControllerClient {
