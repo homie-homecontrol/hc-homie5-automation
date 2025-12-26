@@ -100,7 +100,7 @@ pub async fn initialize_app(
                 let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
                     panic!("Configured Rules folder [{}] does not exist!", path.as_os_str().to_string_lossy())
                 });
-                backend::run_config_file_watcher(absolute_path, "*.yaml", Duration::from_millis(500))
+                backend::run_config_file_watcher(absolute_path, "*.yaml")
             }
             ConfigBackend::Kubernetes { name, namespace } => {
                 backend::run_configmap_watcher(name.to_string(), namespace.to_string())
@@ -127,7 +127,7 @@ pub async fn initialize_app(
                 let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
                     panic!("Configured Virtual Devices folder [{}] does not exist!", path.as_os_str().to_string_lossy())
                 });
-                backend::run_config_file_watcher(absolute_path, "*.yaml", Duration::from_millis(500))
+                backend::run_config_file_watcher(absolute_path, "*.yaml")
             }
             ConfigBackend::Kubernetes { name, namespace } => {
                 log::debug!("Using Kubernetes backend for virtual devices");
@@ -155,7 +155,7 @@ pub async fn initialize_app(
                 let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
                     panic!("Configured Lua modules folder [{}] does not exist!", path.as_os_str().to_string_lossy())
                 });
-                backend::run_config_file_watcher(absolute_path, "*.lua", Duration::from_millis(500))
+                backend::run_config_file_watcher(absolute_path, "*.lua")
             }
             ConfigBackend::Kubernetes { name, namespace } => {
                 log::debug!("Using Kubernetes backend for lua modules");

@@ -60,7 +60,7 @@ impl AppState {
                     log::debug!("Started rule config watcher");
                 }
                 Err(e) => {
-                    log::error!("Error starting rule config watcher. {:?}", e);
+                    log::error!("Error starting rule config watcher. {e:?}");
                 }
             }
             match self.virtual_devices_watcher_handle.start().await {

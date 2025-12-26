@@ -86,7 +86,7 @@ impl QueryCompoundMember {
         false
     }
 
-    pub fn values(&self) -> Values<PropertyRef, PropertyCompoundMember> {
+    pub fn values(&self) -> Values<'_, PropertyRef, PropertyCompoundMember> {
         self.prop_compound_members.values()
     }
 }
