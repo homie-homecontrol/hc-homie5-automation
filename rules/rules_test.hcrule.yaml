@@ -1,28 +1,65 @@
 ---
-name: test-shelly-2
+name: shelly-strip-value-proxy
 triggers:
-  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:0
-    trigger_value:
-      operator: matchAlways
-  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:1
-    trigger_value:
-      operator: matchAlways
-  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:2
-    trigger_value:
-      operator: matchAlways
-  - topic: shellies/shellypstripg4-d885aceb6c8c/status/switch:3
+  - topic: shellies/shellypstripg4-d885aceb6c8c/status/+
     trigger_value:
       operator: matchAlways
 actions:
   - type: run
     script: |
-      print("Shelly status: ", event.value)
-      local parsed = utils:json(event.value)
-      print("Switch state: ", parsed.id, parsed.output)
-      if parsed.id == 0 and parsed.output == true then
-        utils:mqtt_publish("shellies/shellypstripg4-d885aceb6c8c/command/switch:3", "toggle")
+      if event.mqtt_topic:match"switch:[0-3]$" then
+        local switch_state = utils:from_json(event.value)
+        local prop = "shelly-strip/switch-" .. switch_state.id .. "/state"
+        local current_val = virtual_device:get_value(prop)
+        if current_val ~= switch_state.output then
+          virtual_device:set_value(prop, switch_state.output)
+        end
       end
+---
+name: shelly-strip-state-set-handler
+triggers:
+  - subjects:
+      - shelly-strip/switch-0/state
+      - shelly-strip/switch-1/state
+      - shelly-strip/switch-2/state
+      - shelly-strip/switch-3/state
+    set_value:
+      operator: matchAlways
+actions:
+  - type: run
+    script: |
+      local id = event.prop.node_id:sub(-1)
+      local topic = "shellies/shellypstripg4-d885aceb6c8c/command/switch:" .. id
+      local command = "on"
+      if event.value == "false" then
+        command = "off"
+      end
+      print("sending " .. command .. " to " .. topic)
+      utils:mqtt_publish(topic, command, 2, false)
 
+---
+name: shelly-strip-action-set-handler
+triggers:
+  - subjects:
+      - shelly-strip/switch-0/action
+      - shelly-strip/switch-1/action
+      - shelly-strip/switch-2/action
+      - shelly-strip/switch-3/action
+    set_value: "toggle"
+actions:
+  - type: run
+    script: |
+      local prop = event.prop
+      local id = event.prop.node_id:sub(-1)
+      local topic = "shellies/shellypstripg4-d885aceb6c8c/command/switch:" .. id
+      local state_prop = prop.device_id .. "/" .. prop.node_id .. "/state"
+      local current_val = virtual_device:get_value(state_prop)
+      local command = "on"
+      if current_val == true then
+        command = "off"
+      end
+      print("sending " .. command .. " to " .. topic)
+      utils:mqtt_publish(topic, command, 2, false)
 ---
 name: query-test-vec
 triggers:

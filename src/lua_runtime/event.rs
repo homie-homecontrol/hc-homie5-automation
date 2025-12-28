@@ -53,5 +53,21 @@ impl UserData for LuaEvent {
             };
             Ok(res)
         });
+        fields.add_field_method_get("mqtt_topic", |lua, this| {
+            let res = if let Some(value) = this.event.mqtt_topic().map(|v| v.to_string()) {
+                value.into_lua(lua)?
+            } else {
+                mlua::Value::Nil
+            };
+            Ok(res)
+        });
+        fields.add_field_method_get("mqtt_retain", |lua, this| {
+            let res = if let Some(value) = this.event.mqtt_retain() {
+                value.into_lua(lua)?
+            } else {
+                mlua::Value::Nil
+            };
+            Ok(res)
+        });
     }
 }
