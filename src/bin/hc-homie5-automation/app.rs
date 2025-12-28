@@ -92,7 +92,7 @@ pub async fn initialize_app(
     // Setup configuration watchers
     // =====================================================
 
-    let deserialize_rules = |doc: &str| serde_yml::from_str(doc);
+    let deserialize_rules = |doc: &str| serde_yaml_ng::from_str(doc);
 
     let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
         || match &settings.app.rules_config {
@@ -119,7 +119,7 @@ pub async fn initialize_app(
         deserialize_rules,
     )?;
 
-    let deserialize_virtual_devices = |doc: &str| serde_yml::from_str(doc);
+    let deserialize_virtual_devices = |doc: &str| serde_yaml_ng::from_str(doc);
 
     let (vdevices_watcher_handle, vdevices_receiver) = run_config_item_watcher::<VirtualDeviceSpec, _>(
         || match &settings.app.virtual_devices_config {
