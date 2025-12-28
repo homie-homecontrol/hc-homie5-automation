@@ -1,4 +1,32 @@
 ---
+id: shelly-strip
+name: shelly power strip
+nodes:
+  - id: switch-0
+    pass_through: false
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+  - id: switch-1
+    pass_through: false
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+  - id: switch-2
+    pass_through: false
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+  - id: switch-3
+    pass_through: false
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+---
 id: virtual-test-device
 name: virtual test device
 children:

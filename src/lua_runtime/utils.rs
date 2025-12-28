@@ -26,9 +26,13 @@ impl UserData for LuaUtils {
             tokio::time::sleep(Duration::from_millis(time)).await;
             Ok(())
         });
-        methods.add_async_method("json", |lua, _, data: String| async move {
+        methods.add_async_method("from_json", |lua, _, data: String| async move {
             let json_value: serde_json::Value = serde_json::from_str(&data).into_lua_err()?;
             lua.to_value(&json_value)
+        });
+        methods.add_async_method("to_json", |lua, _, data: mlua::Table| async move {
+            let s = serde_json::to_string(&data).into_lua_err()?;
+            lua.to_value(&s)
         });
         methods.add_async_method("http_get", |_, _, uri: String| async move {
             let text = reqwest::get(&uri).await.into_lua_err()?.text().await.into_lua_err()?;

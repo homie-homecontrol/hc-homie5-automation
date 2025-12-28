@@ -55,7 +55,7 @@ impl MqttClientHandle {
 pub fn run_mqtt_client(
     mqttoptions: MqttOptions,
     channel_size: usize,
-) -> Result<(MqttClientHandle, ManagedMqttClient, Receiver<MqttClientEvent>), MqttClientError> {
+) -> Result<(MqttClientHandle, ManagedMqttClient, Receiver<MqttClientEvent>), Box<MqttClientError>> {
     log::trace!("Connecting to MQTT: {}", mqttoptions.client_id());
     let (sender, receiver) = mpsc::channel(channel_size);
 

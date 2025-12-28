@@ -5,7 +5,7 @@ use hc_homie5_automation::{app_state::AppState, rules::Rule};
 pub async fn handle_rules_changes_event(event: ConfigItemEvent<Rule>, state: &mut AppState) -> Result<bool> {
     match event {
         ConfigItemEvent::New(hash, rule) => {
-            log::trace!(
+            log::debug!(
                 "New Rule detected: {} ({})",
                 rule.name,
                 state.rules.get_filename(hash).unwrap_or(&"-".to_string()),

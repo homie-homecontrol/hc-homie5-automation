@@ -161,6 +161,21 @@ impl RuleTriggerEvent<'_> {
         }
     }
 
+    pub fn mqtt_topic(&self) -> Option<&str> {
+        if let RuleTriggerEvent::Mqtt(me) = self {
+            Some(&me.topic)
+        } else {
+            None
+        }
+    }
+    pub fn mqtt_retain(&self) -> Option<bool> {
+        if let RuleTriggerEvent::Mqtt(me) = self {
+            Some(me.retain)
+        } else {
+            None
+        }
+    }
+
     pub fn to_owned(&self) -> RuleTriggerEvent<'static> {
         match self {
             RuleTriggerEvent::PropertyChanged { prop, from, to } => RuleTriggerEvent::PropertyChanged {
