@@ -6,7 +6,7 @@ use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleCon
 
 pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
     match event {
-        DiscoveryAction::DevicePropertyValueChanged { prop, from, to } => {
+        DiscoveryAction::DevicePropertyValueChanged { prop, from, to, .. } => {
             match ctx.vdm.update_member_value_prop(prop, to).await {
                 Ok(_) => {}
                 Err(err) => {
@@ -61,23 +61,23 @@ pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
 
 fn match_prop_trigger(prop: &PropertyRef, trigger: &RuleTrigger, value: &HomieValue, devices: &DeviceStore) -> bool {
     match trigger {
-        RuleTrigger::SubjectTriggered {
-            subjects,
+        RuleTrigger::PropertyTriggered {
+            properties,
             queries,
             trigger_value,
             r#while,
         } => {
-            // Check if either subjects or queries are non-empty
-            let subjects_match = !subjects.is_empty() && subjects.iter().any(|subj| subj == prop);
+            // Check if either properties or queries are non-empty
+            let properties_match = !properties.is_empty() && properties.iter().any(|p| p == prop);
             let queries_match = !queries.is_empty() && queries.iter().any(|query| query.match_query(prop));
 
             // If both are empty, return false
-            if subjects.is_empty() && queries.is_empty() {
+            if properties.is_empty() && queries.is_empty() {
                 return false;
             }
 
-            // If neither subjects nor queries match, return false
-            if !(subjects_match || queries_match) {
+            // If neither properties nor queries match, return false
+            if !(properties_match || queries_match) {
                 return false;
             }
 
@@ -97,23 +97,23 @@ fn match_prop_change(
     devices: &DeviceStore,
 ) -> bool {
     match trigger {
-        RuleTrigger::SubjectChanged {
-            subjects,
+        RuleTrigger::PropertyChanged {
+            properties,
             queries,
             changed,
             r#while,
         } => {
-            // Check if either subjects or queries are non-empty
-            let subjects_match = !subjects.is_empty() && subjects.iter().any(|subj| subj == prop);
+            // Check if either properties or queries are non-empty
+            let properties_match = !properties.is_empty() && properties.iter().any(|p| p == prop);
             let queries_match = !queries.is_empty() && queries.iter().any(|query| query.match_query(prop));
 
             // If both are empty, return false
-            if subjects.is_empty() && queries.is_empty() {
+            if properties.is_empty() && queries.is_empty() {
                 return false;
             }
 
-            // If neither subjects nor queries match, return false
-            if !(subjects_match || queries_match) {
+            // If neither properties nor queries match, return false
+            if !(properties_match || queries_match) {
                 return false;
             }
 

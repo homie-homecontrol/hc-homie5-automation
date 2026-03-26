@@ -3,31 +3,10 @@ use app_env::{initialize_logging, initialize_panic_handler};
 use color_eyre::eyre::Result;
 use eventloop::run_event_loop;
 use hc_homie5_automation::app_state::AppEvent;
-use tokio::{
-    signal::unix::{signal, SignalKind},
-    sync::mpsc,
-};
 mod app;
 mod app_env;
 mod eventloop;
 mod settings;
-
-// Check for SIGINT, SIGTERM and SIGQUIT signals to exit the application cleanly
-async fn signal_handler(app_event_sender: mpsc::Sender<AppEvent>) {
-    let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
-    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-    let mut sigquit = signal(SignalKind::quit()).expect("Failed to register SIGQUIT handler");
-
-    tokio::select! {
-        _ = sigint.recv() => log::info!("Received SIGINT"),
-        _ = sigterm.recv() => log::info!("Received SIGTERM"),
-        _ = sigquit.recv() => log::info!("Received SIGQUIT"),
-    }
-
-    if let Err(err) = app_event_sender.send(AppEvent::Exit).await {
-        log::error!("Error sending exit event: {:#?}", err);
-    }
-}
 
 async fn run_application() -> Result<()> {
     initialize_logging()?;
@@ -44,7 +23,7 @@ async fn run_application() -> Result<()> {
 
     // Set handler to exit the application cleanly
     let exit_sender = state.app_event_sender.clone();
-    tokio::spawn(signal_handler(exit_sender));
+    tokio::spawn(hc_homie5::signal_handler(exit_sender, AppEvent::Exit));
 
     run_event_loop(&mut event_multiplexer, &mut state).await?;
 

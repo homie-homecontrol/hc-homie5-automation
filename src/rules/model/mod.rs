@@ -1,5 +1,4 @@
 mod action;
-mod subject;
 mod timer;
 mod trigger;
 mod while_cond;
@@ -8,7 +7,6 @@ use std::time::Duration;
 
 pub use action::*;
 use serde::{de::Visitor, Deserialize, Deserializer};
-pub use subject::*;
 pub use timer::*;
 pub use trigger::*;
 pub use while_cond::*;

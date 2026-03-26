@@ -4,43 +4,25 @@
 
 The following chapters describe some general concepts used in the different configuration files.
 
-# Subject
+# Property Reference
 
-A subject is another term for a homie property. It is identified by 2 different forms in the config.
+A property reference identifies a homie property using a slash-separated topic-like notation.
 
-### Topic like notation
-
-Identifies the property via a mqtt topic like notation.
-
-The simple form is:
+### Simple form (without domain)
 
 ```yaml
-subject: device/node/property
+property: device/node/property
 ```
 
 The homie domain is omitted in this form, the one configured via `HACTL_HOMIE_DOMAIN` environment variable will be substituted automatically.
 
-Alternatively the homie-domain can be specified:
+### Full form (with domain)
 
 ```yaml
-subject: homie_domain/device/node/property
+property: homie_domain/device/node/property
 ```
 
-### Object notation
-
-Identifies the property via a object notation.
-
-```yaml
-subject:
-    home_domain: homie_domain
-    device_id: device
-    node_id: node
-    property_id: property
-```
-
-The homie domain is optional, if omitted the one configured via `HACTL_HOMIE_DOMAIN` environment variable will be substituted automatically.
-
-**Note**: As of now, `hc-homie5-automation` only operates within one homie_domain. This might change in the future, to at the moment specifying the homie_domain is more or less useless.
+**Note**: As of now, `hc-homie5-automation` only operates within one homie_domain. This might change in the future, so at the moment specifying the homie_domain is more or less useless.
 
 # Homie Value
 
@@ -111,7 +93,7 @@ The advanced condition set includes 2 fields:
 
 ## Supported Operators
 
-Operators define how the `value` is compared to the subject value. The following lists all available operators:
+Operators define how the `value` is compared to the property value. The following lists all available operators:
 
 | **Operator**         | **Key**        | **Description**                                                                     |
 | -------------------- | -------------- | ----------------------------------------------------------------------------------- |

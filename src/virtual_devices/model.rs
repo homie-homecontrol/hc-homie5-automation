@@ -1,21 +1,34 @@
 #![allow(dead_code)]
 
-use crate::rules::{deserialize_optional_duration, Subject};
+use crate::rules::deserialize_optional_duration;
+use homie5::PropertyRef;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 use hc_homie5::{QueryDefinition, ValueMappingIO, ValueMappingList, ValueMatcher};
+use hc_homie5_smarthome::air_quality_node::AirQualityNodeConfig;
+use hc_homie5_smarthome::alarm_node::AlarmNodeConfig;
+use hc_homie5_smarthome::battery_node::BatteryNodeConfig;
 use hc_homie5_smarthome::button_node::ButtonNodeConfig;
-use hc_homie5_smarthome::colorlight_node::ColorlightNodeConfig;
-use hc_homie5_smarthome::dimmer_node::DimmerNodeConfig;
-use hc_homie5_smarthome::light_scene_node::LightSceneNodeConfig;
-use hc_homie5_smarthome::maintenance_node::MaintenanceNodeConfig;
-use hc_homie5_smarthome::motion_node::MotionNodeConfig;
+use hc_homie5_smarthome::camera_node::CameraNodeConfig;
+use hc_homie5_smarthome::climate_node::ClimateNodeConfig;
+use hc_homie5_smarthome::color_node::ColorNodeConfig;
+use hc_homie5_smarthome::daylight_node::DaylightNodeConfig;
+use hc_homie5_smarthome::garage_door_node::GarageDoorNodeConfig;
+use hc_homie5_smarthome::level_node::LevelNodeConfig;
+use hc_homie5_smarthome::link_node::LinkNodeConfig;
+use hc_homie5_smarthome::lock_node::LockNodeConfig;
+use hc_homie5_smarthome::media_info_node::MediaInfoNodeConfig;
+use hc_homie5_smarthome::mediaplayer_node::MediaplayerNodeConfig;
+use hc_homie5_smarthome::powermeter_node::PowermeterNodeConfig;
+use hc_homie5_smarthome::scene_node::SceneNodeConfig;
 use hc_homie5_smarthome::shutter_node::ShutterNodeConfig;
 use hc_homie5_smarthome::switch_node::SwitchNodeConfig;
 use hc_homie5_smarthome::thermostat_node::ThermostatNodeConfig;
+use hc_homie5_smarthome::timer_node::TimerNodeConfig;
+use hc_homie5_smarthome::valve_node::ValveNodeConfig;
 use hc_homie5_smarthome::vibration_node::VibrationNodeConfig;
-use hc_homie5_smarthome::weather_node::WeatherNodeConfig;
+use hc_homie5_smarthome::volume_node::VolumeNodeConfig;
 use homie5::client::QoS;
 use homie5::device_description::{
     serde_default_list, serde_default_retained, serde_default_settable, HomieNodeDescription, HomiePropertyDescription,
@@ -106,24 +119,43 @@ pub struct VirtualNodeConfig {
 #[serde(tag = "type", content = "config", rename_all = "lowercase")] // Use "type" to determine the variant, "config" for optional data
 pub enum SmarthomeSpec {
     // Types with optional configuration
+    #[serde(rename = "air-quality")]
+    AirQuality(Option<AirQualityNodeConfig>),
+    Alarm(Option<AlarmNodeConfig>),
+    Battery(Option<BatteryNodeConfig>),
     Button(Option<ButtonNodeConfig>),
-    ColorLight(Option<ColorlightNodeConfig>),
-    Dimmer(Option<DimmerNodeConfig>),
-    LightScene(Option<LightSceneNodeConfig>),
-    Maintenance(Option<MaintenanceNodeConfig>),
-    Motion(Option<MotionNodeConfig>),
+    Camera(Option<CameraNodeConfig>),
+    Climate(Option<ClimateNodeConfig>),
+    Color(Option<ColorNodeConfig>),
+    Daylight(Option<DaylightNodeConfig>),
+    #[serde(rename = "garage-door")]
+    GarageDoor(Option<GarageDoorNodeConfig>),
+    Level(Option<LevelNodeConfig>),
+    Link(Option<LinkNodeConfig>),
+    Lock(Option<LockNodeConfig>),
+    #[serde(rename = "media-info")]
+    MediaInfo(Option<MediaInfoNodeConfig>),
+    Mediaplayer(Option<MediaplayerNodeConfig>),
+    Powermeter(Option<PowermeterNodeConfig>),
+    Scene(Option<SceneNodeConfig>),
     Shutter(Option<ShutterNodeConfig>),
     Switch(Option<SwitchNodeConfig>),
     Thermostat(Option<ThermostatNodeConfig>),
+    Timer(Option<TimerNodeConfig>),
+    Valve(Option<ValveNodeConfig>),
     Vibration(Option<VibrationNodeConfig>),
-    Weather(Option<WeatherNodeConfig>),
+    Volume(Option<VolumeNodeConfig>),
 
     // Types without configuration
+    Co,
     Contact,
-    Numeric,
+    Illuminance,
+    Motion,
     Orientation,
-    WaterSensor,
+    Smoke,
+    Text,
     Tilt,
+    WaterSensor,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -243,9 +275,9 @@ pub struct CompoundSpec {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum MemberSpec {
-    Subject(Subject),
-    SubjectMember {
-        subject: Subject,
+    PropertyRef(PropertyRef),
+    PropertyRefMember {
+        property: PropertyRef,
         mapping: ValueMappingIO<HomieValue, HomieValue>,
     },
     QueryMember {

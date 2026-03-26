@@ -13,26 +13,26 @@ directories = "6.0.0"
 env_logger = "0.11.5"
 log = "0.4.22"
 human-panic = "2.0.2"
-reqwest = {version = "0.12.12", features = ["json"] }
+reqwest = {version = "0.13.2", features = ["json", "form"] }
 serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0.1"
 tokio = { version = "1.41.0", features = ["full"] }
 tracing-error = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "serde"] }
-rand = "0.9.0"
+rand = "0.10.0"
 rumqttc = "0.25.0"
 tokio-util = "0.7.9"
 serde_yaml_ng = "0.10.0"
 chrono = "0.4.39"
-mlua = { version = "0.11.5", features = ["async","lua54", "macros", "serialize"] }
+mlua = { version = "0.11.5", features = ["async", "lua54", "macros", "serialize", "vendored"] }
 cron = { version = "0.15.0", features = ["serde"] }
 sun = "0.3.1"
 once_cell = "1.20.2"
-config_watcher = "0.10.2"
-homie5 = "0.8.1"
-hc-homie5-smarthome = "0.4.4"
-hc-homie5 = "0.4.3"
+config_watcher = "0.11.0"
+homie5 = { version = "0.10.1" }
+hc-homie5-smarthome = { version = "0.6.1" }
+hc-homie5 = { version = "0.7.2" }
 simple_kv_store = { version = "0.2.0" }
 regex = "1.11.1"
 

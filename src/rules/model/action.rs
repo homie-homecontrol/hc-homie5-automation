@@ -1,4 +1,5 @@
-use super::{Subject, TimerDef};
+use super::TimerDef;
+use homie5::PropertyRef;
 use crate::solar_events::SolarPhase;
 use hc_homie5::{ValueMappingList, ValueMatcher};
 // use hc_homie5::{impl_value_matcher_for, AsMatchStr, ValueMappingList};
@@ -12,18 +13,18 @@ use std::borrow::Cow;
 pub enum RuleAction {
     #[serde(rename = "set")] // Explicitly rename the "Set" variant to "set"
     Set {
-        target: Subject,
+        target: PropertyRef,
         value: HomieValue,
         timer: Option<TimerDef>,
     },
     #[serde(rename = "map_set")] // Explicitly rename the "Set" variant to "set"
     MapSet {
-        target: Subject,
+        target: PropertyRef,
         mapping: ValueMappingList<MapSetFrom<'static>, HomieValue>,
         timer: Option<TimerDef>,
     },
     #[serde(rename = "toggle")] // Explicitly rename the "Set" variant to "set"
-    Toggle { target: Subject },
+    Toggle { target: PropertyRef },
     #[serde(rename = "run")] // Explicitly rename the "Set" variant to "set"
     Run { script: String, timer: Option<TimerDef> },
     #[serde(rename = "timer")] // Explicitly rename the "Set" variant to "set"

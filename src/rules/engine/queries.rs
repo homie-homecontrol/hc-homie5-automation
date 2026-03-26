@@ -7,7 +7,7 @@ use homie5::DeviceRef;
 pub fn queries_init_materialized(rule: &mut Rule, devices: &DeviceStore, vd: &HashMap<DeviceRef, VirtualDevice>) {
     for trigger in rule.triggers.iter_mut() {
         match trigger {
-            crate::rules::RuleTrigger::SubjectTriggered { ref mut queries, .. } => {
+            crate::rules::RuleTrigger::PropertyTriggered { ref mut queries, .. } => {
                 for query in queries.iter_mut() {
                     for (domain, id, device) in devices.iter() {
                         if let Some(desc) = device.description.as_ref() {
@@ -16,7 +16,7 @@ pub fn queries_init_materialized(rule: &mut Rule, devices: &DeviceStore, vd: &Ha
                     }
                 }
             }
-            crate::rules::RuleTrigger::SubjectChanged { ref mut queries, .. } => {
+            crate::rules::RuleTrigger::PropertyChanged { ref mut queries, .. } => {
                 for query in queries.iter_mut() {
                     for (domain, id, device) in devices.iter() {
                         if let Some(desc) = device.description.as_ref() {
@@ -43,7 +43,7 @@ pub fn queries_init_materialized(rule: &mut Rule, devices: &DeviceStore, vd: &Ha
 // pub fn queries_remove_init_materialized(rule: &mut Rule, devices: &DeviceStore) {
 //     for trigger in rule.trigger.iter_mut() {
 //         match trigger {
-//             crate::rules::RuleTrigger::SubjectTriggered { ref mut queries, .. } => {
+//             crate::rules::RuleTrigger::PropertyTriggered { ref mut queries, .. } => {
 //                 for query in queries.iter_mut() {
 //                     for (domain, id, device) in devices.iter() {
 //                         if let Some(desc) = device.description.as_ref() {
@@ -52,7 +52,7 @@ pub fn queries_init_materialized(rule: &mut Rule, devices: &DeviceStore, vd: &Ha
 //                     }
 //                 }
 //             }
-//             crate::rules::RuleTrigger::SubjectChanged { ref mut queries, .. } => {
+//             crate::rules::RuleTrigger::PropertyChanged { ref mut queries, .. } => {
 //                 for query in queries.iter_mut() {
 //                     for (domain, id, device) in devices.iter() {
 //                         if let Some(desc) = device.description.as_ref() {

@@ -59,7 +59,7 @@ impl VirtualDeviceManager {
             .last_will(Some(last_will));
 
         let (device_client_handle, homie_client, homie_event_receiver) =
-            run_homie_client(homie_client_options.to_mqtt_options(), homie_client_options.mqtt_channel_size)?;
+            run_homie_client(homie_client_options.to_mqtt_options()?, homie_client_options.mqtt_channel_size)?;
 
         let device_desc = DeviceDescriptionBuilder::new()
             .name(config.controller_name.clone())
