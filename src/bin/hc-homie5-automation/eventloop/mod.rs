@@ -2,10 +2,12 @@ use color_eyre::eyre::Result;
 use config_watcher::config_item_watcher::ConfigItemEvent;
 use cron::handle_cron_event;
 use discovery::handle_discovery_client_event;
-use hc_homie5::{define_event_multiplexer, HomieClientEvent};
+use hc_homie5::client::HomieClientEvent;
+use hc_homie5::define_event_multiplexer;
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState},
     cron_manager::CronEvent,
+    meta::MetaConfig,
     mqtt_client::MqttClientEvent,
     rules::Rule,
     solar_events::SolarEvent,
@@ -13,6 +15,7 @@ use hc_homie5_automation::{
     virtual_devices::VirtualDeviceSpec,
 };
 use lua_files::handle_lua_files_changes_event;
+use meta::handle_meta_changes_event;
 use mqtt_client::handle_mqtt_client_event;
 use rules::handle_rules_changes_event;
 use solar::handle_solar_event;
@@ -23,6 +26,7 @@ mod app;
 mod cron;
 mod discovery;
 mod lua_files;
+mod meta;
 mod mqtt_client;
 mod rules;
 mod solar;
@@ -40,6 +44,7 @@ define_event_multiplexer! {
         RulesChanges(ConfigItemEvent<Rule>) => rules_changes,
         VirtualDevicesChanges(ConfigItemEvent<VirtualDeviceSpec>) => vdevice_changes,
         LuaFilesChanges(ConfigItemEvent<String>) => lua_changes,
+        MetaChanges(ConfigItemEvent<MetaConfig>) => meta_changes,
         TimerEvent(TimerEvent) => timer_event,
         CronEvent(CronEvent) => cron_event,
         MqttClientEvent(MqttClientEvent) => mqtt_client_event,
@@ -67,6 +72,7 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
             Event::LuaFilesChanges(config_file_event) => {
                 handle_lua_files_changes_event(config_file_event, state).await?
             }
+            Event::MetaChanges(config_file_event) => handle_meta_changes_event(config_file_event, state).await?,
             Event::TimerEvent(timer_event) => handle_timer_event(timer_event, state).await?,
             Event::CronEvent(cron_event) => handle_cron_event(cron_event, state).await?,
             Event::MqttClientEvent(mqtt_event) => handle_mqtt_client_event(mqtt_event, state).await?,

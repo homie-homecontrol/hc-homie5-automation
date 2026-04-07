@@ -1,11 +1,12 @@
 use config_watcher::ConfigItemWatcherHandle;
-pub use hc_homie5::{ConnectionEvent, ConnectionState};
+pub use hc_homie5::connection::{ConnectionEvent, ConnectionState};
+use hc_homie5::controller::MetaOverlayHandler;
 use homie5::{DeviceRef, PropertyRef};
 use simple_kv_store::KeyValueStore;
 use tokio::sync::mpsc::Sender;
 
 use crate::{
-    cron_manager::CronManager, device_manager::DeviceManager, lua_runtime::LuaModuleManager,
+    cron_manager::CronManager, device_manager::DeviceManager, lua_runtime::LuaModuleManager, meta::MetaManager,
     mqtt_client::ManagedMqttClient, rule_manager::RuleManager, rules::RuleContext, solar_events::SolarEventManager,
     timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
 };
@@ -34,8 +35,11 @@ pub struct AppState {
     pub virtual_devices_state: ConnectionState,
     pub value_store: KeyValueStore,
     pub lua_module_manager: LuaModuleManager,
+    pub meta: MetaManager,
+    pub meta_handler: MetaOverlayHandler,
     pub rule_watcher_handle: ConfigItemWatcherHandle,
     pub virtual_devices_watcher_handle: ConfigItemWatcherHandle,
+    pub meta_watcher_handle: ConfigItemWatcherHandle,
     pub lua_files_watcher_handle: ConfigItemWatcherHandle,
 }
 
@@ -80,7 +84,15 @@ impl AppState {
                     log::error!("Error starting lua module config watcher. {:?}", e);
                 }
             }
+
+            match self.meta_watcher_handle.start().await {
+                Ok(_) => {
+                    log::debug!("Started meta config watcher");
+                }
+                Err(e) => {
+                    log::error!("Error starting meta config watcher. {:?}", e);
+                }
+            }
         }
     }
 }
-

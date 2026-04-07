@@ -1,6 +1,7 @@
 use super::compound_member::{PropertyCompoundMember, PropertyCompoundMembers};
-use hc_homie5::DeviceStore;
-use hc_homie5::{QueryDefinition, ValueMappingIO};
+use hc_homie5::query::QueryDefinition;
+use hc_homie5::store::DeviceStore;
+use hc_homie5::value::ValueMappingIO;
 use homie5::{device_description::HomieDeviceDescription, DeviceRef, HomieValue, PropertyRef};
 use std::collections::{hash_map::Values, HashMap};
 

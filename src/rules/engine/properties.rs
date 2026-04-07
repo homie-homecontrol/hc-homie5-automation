@@ -1,5 +1,6 @@
 use crate::rules::RuleTrigger;
-use hc_homie5::{DeviceStore, DiscoveryAction};
+use hc_homie5::model::DiscoveryAction;
+use hc_homie5::store::DeviceStore;
 use homie5::{HomieValue, PropertyRef, ToTopic};
 
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};

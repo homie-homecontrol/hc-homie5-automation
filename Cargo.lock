@@ -389,8 +389,6 @@ dependencies = [
 [[package]]
 name = "config_watcher"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1b1098814724482944ed6b936d158e81ff9e04fa3e6822527aa8e823fce7d17"
 dependencies = [
  "futures",
  "futures-stream-ext",
@@ -1095,12 +1093,11 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b466a875a500dc8981f50c3f41c4f167b106e6802122b25d7d5bf8ebfa76d7c7"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "hc-homie5-macros",
+ "hc-homie5-smarthome",
  "homie5",
  "log",
  "paste",
@@ -1150,9 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5-macros"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61f5b14e9fa498c6f5797dc7ba47c50192ae45ff6ff3aa969aae67c4a9afc86b"
+version = "0.4.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1188,8 +1183,6 @@ dependencies = [
 [[package]]
 name = "homie5"
 version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4b680accbe54b39fe9799a47783ab833294ec9ca1b603d36e91eb6430c7d61f"
 dependencies = [
  "chrono",
  "log",

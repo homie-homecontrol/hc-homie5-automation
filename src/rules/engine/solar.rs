@@ -4,7 +4,7 @@ use crate::{
     solar_events::{SolarEvent, SolarEventManager, SolarEventTrigger},
 };
 use config_watcher::ConfigItemHash;
-use hc_homie5::DeviceStore;
+use hc_homie5::store::DeviceStore;
 
 pub async fn run_solar_rules(event: &SolarEvent, ctx: &RuleContext<'_>) {
     let devices = &ctx.dm.read().await;

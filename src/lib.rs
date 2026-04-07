@@ -4,6 +4,7 @@ pub mod cron_manager;
 pub mod device_manager;
 pub mod homie;
 pub mod lua_runtime;
+pub mod meta;
 pub mod mqtt_client;
 pub mod rule_manager;
 pub mod rules;

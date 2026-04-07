@@ -1,1 +1,1 @@
-pub use hc_homie5::DeviceManager;
+pub use hc_homie5::controller::DeviceManager;

@@ -1,5 +1,5 @@
 use chrono::{Datelike, Local, NaiveTime, Weekday as ChronoWeekday};
-use hc_homie5::ValueCondition;
+use hc_homie5::value::ValueCondition;
 use homie5::HomieValue;
 use serde::Deserialize;
 

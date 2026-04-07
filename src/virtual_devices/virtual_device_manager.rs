@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use color_eyre::eyre::{self, eyre, Result};
 use config_watcher::ConfigItemHash;
-use hc_homie5::{homie_device, run_homie_client, HomieClientEvent, HomieClientHandle, HomieDevice, MqttClientConfig};
+use hc_homie5::client::{run_homie_client, HomieClientEvent, HomieClientHandle, MqttClientConfig};
+use hc_homie5::device::HomieDevice;
+use hc_homie5::homie_device;
 use homie5::{device_description::DeviceDescriptionBuilder, Homie5ControllerProtocol, HomieValue, PropertyRef};
 use tokio::sync::{mpsc, RwLock};
 

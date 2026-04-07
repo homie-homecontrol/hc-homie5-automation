@@ -23,7 +23,7 @@ async fn run_application() -> Result<()> {
 
     // Set handler to exit the application cleanly
     let exit_sender = state.app_event_sender.clone();
-    tokio::spawn(hc_homie5::signal_handler(exit_sender, AppEvent::Exit));
+    tokio::spawn(hc_homie5::util::signal_handler(exit_sender, AppEvent::Exit));
 
     run_event_loop(&mut event_multiplexer, &mut state).await?;
 

@@ -1,7 +1,7 @@
 use super::TimerDef;
-use homie5::PropertyRef;
 use crate::solar_events::SolarPhase;
-use hc_homie5::{ValueMappingList, ValueMatcher};
+use hc_homie5::value::{ValueMappingList, ValueMatcher};
+use homie5::PropertyRef;
 // use hc_homie5::{impl_value_matcher_for, AsMatchStr, ValueMappingList};
 use homie5::client::QoS;
 use homie5::HomieValue;

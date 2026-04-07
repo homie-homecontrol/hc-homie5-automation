@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{rules::Rule, virtual_devices::VirtualDevice};
-use hc_homie5::{DeviceStore, HomieDeviceCore};
+use hc_homie5::device::HomieDeviceCore;
+use hc_homie5::store::DeviceStore;
 use homie5::DeviceRef;
 
 pub fn queries_init_materialized(rule: &mut Rule, devices: &DeviceStore, vd: &HashMap<DeviceRef, VirtualDevice>) {

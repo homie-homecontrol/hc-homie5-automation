@@ -1,4 +1,4 @@
-use hc_homie5::DeviceStore;
+use hc_homie5::store::DeviceStore;
 use homie5::{HomieDataType, HomieDeviceStatus, HomieValue};
 
 use super::{

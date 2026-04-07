@@ -1,0 +1,12 @@
+provider:
+  id: hcactl-manual-meta
+  schema: 1
+  title: hc-homie5-automation manual metadata
+  description: Sample metadata overlay published by automation.
+devices:
+  rule-test-dev:
+    annotations:
+      room: office
+      tags:
+        - automation
+        - sample

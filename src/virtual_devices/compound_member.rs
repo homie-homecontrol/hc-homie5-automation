@@ -1,9 +1,10 @@
 #![allow(dead_code)]
-use hc_homie5::{DeviceStore, ValueMatcher};
+use hc_homie5::store::DeviceStore;
+use hc_homie5::value::ValueMatcher;
 use homie5::{device_description::SETTABLE_DEFAULT, HomieValue, PropertyRef};
 use std::collections::HashMap;
 
-use hc_homie5::{MappingResult, ValueMappingIO, ValueMappingList};
+use hc_homie5::value::{MappingResult, ValueMappingIO, ValueMappingList};
 
 use super::MqttWrapperChannel;
 

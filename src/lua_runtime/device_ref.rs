@@ -8,9 +8,7 @@ pub struct LuaDeviceRef(pub(crate) DeviceRef);
 
 impl UserData for LuaDeviceRef {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
-            Ok(this.0.to_string())
-        });
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| Ok(this.0.to_string()));
     }
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("homie_domain", |_, this| Ok(this.0.homie_domain().to_string()));

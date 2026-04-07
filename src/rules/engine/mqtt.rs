@@ -4,7 +4,8 @@ use crate::{
     rules::{Rule, RuleTrigger},
 };
 use color_eyre::eyre::Result;
-use hc_homie5::{DeviceStore, HomieMQTTClient};
+use hc_homie5::client::HomieMQTTClient;
+use hc_homie5::store::DeviceStore;
 
 pub async fn run_mqtt_rules(event: &MqttPublishEvent, ctx: &RuleContext<'_>) {
     match ctx.vdm.update_member_value_mqtt(&event.topic, &event.payload).await {

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use color_eyre::eyre::{self, eyre};
-use hc_homie5::DiscoveryAction;
+use hc_homie5::model::DiscoveryAction;
 use homie5::client::QoS;
 use homie5::{Homie5Message, HomieValue, PropertyRef};
 use serde::Deserialize;
@@ -11,8 +11,8 @@ use crate::cron_manager::CronEvent;
 use crate::mqtt_client::MqttPublishEvent;
 use crate::solar_events::{SolarEvent, SolarPhase};
 use crate::timer_manager::TimerEvent;
-use hc_homie5::MaterializedQuery;
-use hc_homie5::ValueCondition;
+use hc_homie5::query::MaterializedQuery;
+use hc_homie5::value::ValueCondition;
 
 use super::{deserialize_duration, WhileConditionSet};
 

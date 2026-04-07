@@ -5,7 +5,8 @@ use homie5::PropertyRef;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use hc_homie5::{QueryDefinition, ValueMappingIO, ValueMappingList, ValueMatcher};
+use hc_homie5::query::QueryDefinition;
+use hc_homie5::value::{ValueMappingIO, ValueMappingList, ValueMatcher};
 use hc_homie5_smarthome::air_quality_node::AirQualityNodeConfig;
 use hc_homie5_smarthome::alarm_node::AlarmNodeConfig;
 use hc_homie5_smarthome::battery_node::BatteryNodeConfig;

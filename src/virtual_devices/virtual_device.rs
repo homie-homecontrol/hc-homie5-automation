@@ -3,7 +3,9 @@ use std::collections::{btree_map, HashMap, HashSet};
 
 use color_eyre::eyre::{self, eyre, Result};
 use config_watcher::ConfigItemHash;
-use hc_homie5::{homie_device, DeviceStore, HomieDevice};
+use hc_homie5::device::HomieDevice;
+use hc_homie5::homie_device;
+use hc_homie5::store::DeviceStore;
 use hc_homie5_smarthome::{
     air_quality_node::AirQualityNodeBuilder, alarm_node::AlarmNodeBuilder, battery_node::BatteryNodeBuilder,
     button_node::ButtonNodeBuilder, camera_node::CameraNodeBuilder, climate_node::ClimateNodeBuilder,

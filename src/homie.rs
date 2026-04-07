@@ -1,1 +1,1 @@
-pub use hc_homie5::HomieControllerClient;
+pub use hc_homie5::controller::HomieControllerClient;

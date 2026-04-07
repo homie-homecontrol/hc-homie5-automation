@@ -1,5 +1,5 @@
 use crate::rules::{WhileCondition, WhileConditionSet};
-use hc_homie5::DeviceStore;
+use hc_homie5::store::DeviceStore;
 
 pub(crate) fn match_whilecondition_set(while_condition_set: Option<&WhileConditionSet>, devices: &DeviceStore) -> bool {
     if let Some(while_conditions) = while_condition_set {

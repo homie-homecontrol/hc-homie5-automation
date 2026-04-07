@@ -30,12 +30,18 @@ cron = { version = "0.15.0", features = ["serde"] }
 sun = "0.3.1"
 once_cell = "1.20.2"
 config_watcher = "0.11.0"
-homie5 = { version = "0.10.1" }
+homie5 = { version = "0.10.1", features = ["ext-meta"] }
 hc-homie5-smarthome = { version = "0.6.1" }
-hc-homie5 = { version = "0.7.2" }
+hc-homie5 = { version = "0.8.0", features = ["ext-meta"] }
 simple_kv_store = { version = "0.2.0" }
 regex = "1.11.1"
 
 [[bin]]
 name = "hc-homie5-automation"
 path = "src/bin/hc-homie5-automation/main.rs"
+
+[patch.crates-io]
+homie5 = { path = "../homie5" }
+hc-homie5 = { path = "../hc-homie5" }
+hc-homie5-macros = { path = "../hc-homie5-macros" }
+config_watcher = { path = "../config_watcher" }

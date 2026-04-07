@@ -1,1 +1,1 @@
-pub use hc_homie5::UnwrapOrExit;
+pub use hc_homie5::util::UnwrapOrExit;

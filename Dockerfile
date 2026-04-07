@@ -65,7 +65,7 @@ WORKDIR /service
 COPY --from=builder /service/hc-homie5-automation/target/release/hc-homie5-automation /service/
 
 # Prepare runtime folders and permissions
-RUN mkdir -p /service/rules /service/virtual_devices && \
+RUN mkdir -p /service/rules /service/virtual_devices /service/meta && \
     chown -R appuser:appuser /service && \
     chmod 755 /service/hc-homie5-automation
 
@@ -78,9 +78,9 @@ ENV HCACTL_HOMIE_HOST="mqtt" \
     HCACTL_HOMIE_CTRL_ID="dev-autoctl-1" \
     HCACTL_VIRTUAL_DEVICES_CONFIG="file:/service/virtual_devices" \
     HCACTL_RULES_CONFIG="file:/service/rules" \
+    HCACTL_META_CONFIG="file:/service/meta" \
     HCACTL_VALUE_STORE_CONFIG="inmemory" \
     HCACTL_LOCATION="0.0,0.0,0.0"
 
 USER appuser
 ENTRYPOINT ["/service/hc-homie5-automation"]
-

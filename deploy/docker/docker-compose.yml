@@ -36,11 +36,13 @@ services:
       HCACTL_HOMIE_CTRL_ID: homecontrol-automation
       HCACTL_VIRTUAL_DEVICES_CONFIG: file:./data/virtual_devices
       HCACTL_RULES_CONFIG: file:./data/rules
+      HCACTL_META_CONFIG: file:./data/meta
       HCACTL_VALUE_STORE_CONFIG: sqlite:./data/store/data.db
       HCACTL_LOGLEVEL: debug,info,warn,error
       TZ: "Europe/Berlin"
     volumes:
       - ./rules:/service/data/rules
       - ./virtual_devices:/service/data/virtual_devices
+      - ./meta:/service/data/meta
       - ./store:/service/data/store
       - /usr/share/zoneinfo/Europe/Berlin:/etc/localtime:ro
