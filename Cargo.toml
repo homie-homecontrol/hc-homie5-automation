@@ -39,9 +39,3 @@ regex = "1.11.1"
 [[bin]]
 name = "hc-homie5-automation"
 path = "src/bin/hc-homie5-automation/main.rs"
-
-[patch.crates-io]
-homie5 = { path = "../homie5" }
-hc-homie5 = { path = "../hc-homie5" }
-hc-homie5-macros = { path = "../hc-homie5-macros" }
-config_watcher = { path = "../config_watcher" }
