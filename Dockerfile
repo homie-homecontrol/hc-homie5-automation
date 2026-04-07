@@ -17,7 +17,7 @@ WORKDIR /service/hc-homie5-automation/
 # Copy the recipe from the previous stage
 COPY --from=chef /service/hc-homie5-automation/recipe.json recipe.json
 
-RUN cargo chef cook --release --locked --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
 # # Run cargo chef cook using cache mounts (for speed) and then persist into layered filesystem for reliability
 # RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -46,7 +46,7 @@ RUN sed -i "s/^version = \"0.0.0-placeholder\"/version = \"$VERSION\"/" Cargo.to
 #     strip target/release/hc-homie5-automation && \
 #     cp target/release/hc-homie5-automation /service/hc-homie5-automation
 
-RUN cargo build --release --locked && \
+RUN cargo build --release && \
     strip target/release/hc-homie5-automation
 
 # Stage 4: Minimal Runtime Image
