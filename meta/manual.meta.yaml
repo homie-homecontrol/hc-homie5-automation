@@ -1,0 +1,18 @@
+provider:
+  id: hcactl-manual-meta
+  schema: 1
+  title: hc-homie5-automation manual metadata
+  description: Publishes metadata overlays configured in files.
+devices:
+  rule-test-dev:
+    annotations:
+      room: office
+      tags:
+        - automation
+        - manual
+    nodes:
+      switch:
+        properties:
+          state:
+            annotations:
+              category: demo

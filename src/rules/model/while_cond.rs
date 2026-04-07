@@ -1,9 +1,9 @@
 use chrono::{Datelike, Local, NaiveTime, Weekday as ChronoWeekday};
-use hc_homie5::ValueCondition;
+use hc_homie5::value::ValueCondition;
 use homie5::HomieValue;
 use serde::Deserialize;
 
-use super::Subject;
+use homie5::PropertyRef;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -21,7 +21,7 @@ pub enum WhileCondition {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PropertyWhileCondition {
-    pub subject: Subject,
+    pub property: PropertyRef,
     pub condition: ValueCondition<HomieValue>,
 }
 

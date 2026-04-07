@@ -1,5 +1,5 @@
 use super::{deserialize_duration, deserialize_optional_duration};
-use hc_homie5::ValueCondition;
+use hc_homie5::value::ValueCondition;
 use homie5::HomieValue;
 use serde::Deserialize;
 use std::time::Duration;

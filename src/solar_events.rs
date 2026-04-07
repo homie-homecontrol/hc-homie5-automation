@@ -4,7 +4,7 @@ use std::time::Duration;
 use chrono::{TimeZone, Utc};
 use color_eyre::eyre::Result;
 use config_watcher::ConfigItemHash;
-use hc_homie5::ValueMatcher;
+use hc_homie5::value::ValueMatcher;
 use serde::{Deserialize, Serialize};
 use sun::SunPhase;
 use tokio::sync::{mpsc, watch};

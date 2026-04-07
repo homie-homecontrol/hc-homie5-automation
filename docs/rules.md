@@ -27,7 +27,7 @@ name: evening-light
 triggers:
     - schedule: "0 0 19 * * *"
       while:
-          - subject: homie/living-room/motion-sensor/state
+          - property: homie/living-room/motion-sensor/state
             condition:
                 Bool: true
 actions:
@@ -47,33 +47,33 @@ The name attribute gives the rule a human-readable name, this is useful for debu
 
 The following trigger types are supported:
 
-- `Subject triggered`: a property value is emitted (this is available for retained and non-retained properties)
-- `Subject changed`: a property value changed (this is available only for retaied properties)
+- `Property triggered`: a property value is emitted (this is available for retained and non-retained properties)
+- `Property changed`: a property value changed (this is available only for retained properties)
 - `On set trigger`: for a virtual device property (when a message to ../set is published for a virtual property)
 - `MQTT trigger`: when a value is published on any generic mqtt topic
 - `Cron trigger`": define time intervals when a rule should be triggered
 - `Timer trigger`: a defined timer fires
 - `Solar event trigger`: specify a solar event e.g. sunset, when a rule should be triggered
 
-### 1. Subject triggered
+### 1. Property triggered
 
-Activates when one or multiple specified property publishes a value matches a `trigger_value`.
+Activates when one or multiple specified properties publish a value matching a `trigger_value`.
 This will work for `retained` and `non retained` properties.
 
 Available config attributes:
 
 | Attribute       | Type                                      | Description                                                                                                   |
 | --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `subjects`      | list of `subject` definitions             | defines all the properties subject to this this trigger                                                       |
-| `queries`       | list of `query` definitions               | defines queries which will match all properties that are subject to this trigger                              |
+| `properties`    | list of property references               | defines all the properties for this trigger                                                                   |
+| `queries`       | list of `query` definitions               | defines queries which will match all properties for this trigger                                              |
 | `trigger_value` | a `value-condition` of type `homie-value` | defines the value condition that needs to match the property value in order for the rule to trigger           |
-| `while`         | list of `while-conditions`                | defines additional conditions that need to be true while the trigger is evaluated in order for it to triggger |
+| `while`         | list of `while-conditions`                | defines additional conditions that need to be true while the trigger is evaluated in order for it to trigger  |
 
 #### Example
 
 ```yaml
 triggers:
-    - subjects:
+    - properties:
           - living-room-light-switch/button/action
       trigger_value:
           Enum: "press"
@@ -81,17 +81,17 @@ triggers:
 
 Triggeres when the living room light switch button is pressed.
 
-### 2. Subject changed
+### 2. Property changed
 
-Activates when one or multiple property values change. You can optional also restrict further to changes `from` a certain value or `to` a certain value.
+Activates when one or multiple property values change. You can optionally also restrict further to changes `from` a certain value or `to` a certain value.
 This works only for `retained` properties.
 
 Available config attributes:
 
 | Attribute      | Type                                           | Description                                                                                                    |
 | -------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `subjects`     | list of `subject` definitions                  | defines all the properties subject to this this trigger                                                        |
-| `queries`      | list of `query` definitions                    | defines queries which will match all properties that are subject to this trigger                               |
+| `properties`   | list of property references                    | defines all the properties for this trigger                                                                    |
+| `queries`      | list of `query` definitions                    | defines queries which will match all properties for this trigger                                               |
 | `changed`      | `changed` defintion (contains `from` and `to`) | defines the change condition (`from` and `to`) for the trigger to fire                                         |
 | `changed.from` | a `value-condition` of type `homie-value`      | defines the value condition that needs to match the property's previous value in order for the rule to trigger |
 | `changed.to`   | a `value-condition` of type `homie-value`      | defines the value condition that needs to match the property's current value in order for the rule to trigger  |
@@ -109,7 +109,7 @@ Both `from` and `to` are optional.
 
 ```yaml
 triggers:
-    - subjects:
+    - properties:
           - homie5-home/kitchen/light/state
       changed:
           from:
@@ -122,7 +122,7 @@ triggers:
 
 ```yaml
 triggers:
-    - subjects:
+    - properties:
           - air-condition/mode/state
       changed:
           to: { Enum: "auto" }
@@ -134,7 +134,7 @@ This triggers when the aircondition mode changes to auto (e.g. either from `heat
 
 ```yaml
 triggers:
-    - subjects:
+    - properties:
           - homie5-home/living-room/thermostat/temperature
       changed: {}
 ```
@@ -149,8 +149,8 @@ Available config attributes:
 
 | Attribute   | Type                                 | Description                                                                                                                                                                                                                                                                                                                                                  |
 | ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `subjects`  | list of `subject` definitions        | defines all the properties subject to this this trigger                                                                                                                                                                                                                                                                                                      |
-| `queries`   | list of `query` definitions          | defines queries which will match all properties that are subject to this trigger                                                                                                                                                                                                                                                                             |
+| `properties` | list of property references         | defines all the properties for this trigger                                                                                                                                                                                                                                                                                                                  |
+| `queries`   | list of `query` definitions          | defines queries which will match all properties for this trigger                                                                                                                                                                                                                                                                                             |
 | `set_value` | a `value-condition` of type `string` | defines the value condition that needs to match the property value in order for the rule to trigger. This will be the raw string value published for the `../set` topic. Beware that you will need to process and validate the input value by yourself in order to adhere to homie convention specs (there are functions in the lua runtime to handle this). |
 | `while`     | list of `while-conditions`           | defines additional conditions that need to be true while the trigger is evaluated in order for it to triggger                                                                                                                                                                                                                                                |
 
@@ -158,7 +158,7 @@ Available config attributes:
 
 ```yaml
 triggers:
-    - subjects:
+    - properties:
           - virtual-light-device/switch/action
       set_value: "toggle"
 ```
@@ -281,13 +281,13 @@ An example could be a trigger that acts on a motion detector and switches a ligh
 
 ```yaml
 triggers:
-    - subjects:
+    - properties:
           - motion-restroom/motion/state
       changed:
           from: { Bool: false }
           to: { Bool: true }
       while:
-          - subject: lightsensor-restroom/lux/value
+          - property: lightsensor-restroom/lux/value
             condition:
                 operator: "<"
                 value: { Integer: 10 }
@@ -305,7 +305,7 @@ A propery while condition tests against the current value of a (retained) homie 
 Fields are:
 | Attribute | Type | Description |
 | ----------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `subject` | a `subject` definition of the property | defines the property subject to this this condition |
+| `property` | a property reference                  | defines the property for this condition             |
 | `condition` | a `value-condition` of type `homie-value` | defines the value condition that needs to match to true for the trigger to fire |
 
 #### Time while condition
@@ -374,14 +374,14 @@ actions:
 
 ### Set Action
 
-The Set action sets a specific value for a target subject.
+The Set action sets a specific value for a target property.
 
 Available fields are:
 
 | Attribute | Type              | Description                                                                                   |
 | --------- | ----------------- | --------------------------------------------------------------------------------------------- |
 | `type`    | "set"             | defines the action type                                                                       |
-| `target`  | `subject`         | the subject to set the value for (see chapter Subject in 'General Concepts')                  |
+| `target`  | property ref      | the property to set the value for (see chapter Property Reference in 'General Concepts')      |
 | `value`   | `HomieValue`      | The value to set as HomieValue(e.g., `{ Bool: true }`, `{ Integer: 123 }`, etc.)              |
 | `timer`   | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details |
 
@@ -397,21 +397,21 @@ actions:
 
 ### MapSet Action
 
-Maps the triggering subject's value using a predefined mapping.
-The mapped value is then set for the target subject.
+Maps the triggering property's value using a predefined mapping.
+The mapped value is then set for the target property.
 
 Available fields are:
 
 | Attribute | Type              | Description                                                                                              |
 | --------- | ----------------- | -------------------------------------------------------------------------------------------------------- |
 | `type`    | "map_set"         | defines the action type                                                                                  |
-| `target`  | `subject`         | the subject to set the value for (see chapter Subject in 'General Concepts')                             |
+| `target`  | property ref      | the property to set the value for (see chapter Property Reference in 'General Concepts')                 |
 | `mapping` | `HomieValue`      | A list of mappings. There are 3 different `from` types to map from: `HomieValue`, `String`, `SolarPhase` |
 | `timer`   | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details            |
 
 #### Mapping field description:
 
-The mapping field contains a list of mappings which are used to map the triggering value of the rule to a new value used to be set for the target subject. The mapping in the list that first matches in its `from` condition will be used to determine the output value.
+The mapping field contains a list of mappings which are used to map the triggering value of the rule to a new value used to be set for the target property. The mapping in the list that first matches in its `from` condition will be used to determine the output value.
 A mapping is simply a combination of a (optional) `from` value condition and a `to` output value. If `from` is omitted the mapping is a so called "catch all" mapping, this is useful to map all not further defined input values to a defined output.
 
 ##### Example
@@ -429,8 +429,8 @@ to:
 Since a rule can be triggered by multiple different kind of triggers the mapping also needs to specify the source value type explicitly it is mapping`from`.
 The following kind of triggers output a value:
 
-- Subject triggered
-- Subject changed
+- Property triggered
+- Property changed
 - On Set Trigger
 - Timer Trigger
 - Mqtt Trigger
@@ -440,8 +440,8 @@ In the table below you can find the type of the trigger output value and a examp
 
 | Trigger             | Type         | Example                      |
 | ------------------- | ------------ | ---------------------------- |
-| subject triggered   | `HomieValue` | `HomieValue: { Integer: 5 }` |
-| subject changed     | `HomieValue` | `HomieValue: { Bool: true }` |
+| property triggered  | `HomieValue` | `HomieValue: { Integer: 5 }` |
+| property changed    | `HomieValue` | `HomieValue: { Bool: true }` |
 | on set trigger      | `String`     | `String: "toggle"`           |
 | timer trigger       | `String`     | `String: "my_timer_id"`      |
 | mqtt trigger        | `String`     | `String: "off"`              |
@@ -496,7 +496,7 @@ name: light-switch
 triggers:
     # trigger on a published value from the living room light switch.
     # It will send a 2001 Integer for the On button and a 2002 for the Off button
-    - subjects:
+    - properties:
           - livingroom/light-switch/button
       trigger_value:
           operator: matchAlways
@@ -529,10 +529,10 @@ Mappings are defined only for 2002 and off input value to false (lights off) sta
 
 ### Toggle Action
 
-The Toggle action toggles the state of a target subject (true -> false / false -> true)
+The Toggle action toggles the state of a target property (true -> false / false -> true)
 
 - **Type**: `toggle`
-- **Target**: The `boolean` property subject to toggle (e.g., `device_id/node_id/property_id`)
+- **Target**: The `boolean` property to toggle (e.g., `device_id/node_id/property_id`)
 
 Example:
 
@@ -622,7 +622,7 @@ The Timer Definition is used to specify the settings for a timer. The available 
 
 #### Triggerbound
 
-The `triggerbound` field is used to determine how the timer id is generated when a timer is triggered by a rule. If `triggerbound` is `true`, the timer id will be generated by appending the property subject path (domain/device/node/property) of the trigger event to the specified timer id, separated by a hyphen. This allows you to create multiple timers with the same id, but triggered by different properties.
+The `triggerbound` field is used to determine how the timer id is generated when a timer is triggered by a rule. If `triggerbound` is `true`, the timer id will be generated by appending the property path (domain/device/node/property) of the trigger event to the specified timer id, separated by a hyphen. This allows you to create multiple timers with the same id, but triggered by different properties.
 
 One of the key benefits of the `triggerbound` field is that it enables you to create a single rule that can handle multiple properties, and each property will have its own separate timer context. This means you can create a rule that matches multiple properties via a query, and the timer will be created separately for each property that triggers the rule. For example, if you have a rule that matches all window contact sensors in the house, you can use the `triggerbound` field to create a separate timer for each window contact sensor. This way, if one window is opened, a timer will be started for that specific window, and if another window is opened, a separate timer will be started for that window.
 

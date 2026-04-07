@@ -27,9 +27,9 @@ The following commands are available in the Lua Runtime:
 
 The `homie` command provides functions for interacting with Homie devices. The available functions are:
 
-- `set_command(subject, value)`: Sets the value of a Homie property.
-- `get_value(subject)`: Gets the current value of a Homie property.
-- `get_property_description(subject)`: Gets the description of a Homie property.
+- `set_command(property_ref, value)`: Sets the value of a Homie property.
+- `get_value(property_ref)`: Gets the current value of a Homie property.
+- `get_property_description(property_ref)`: Gets the description of a Homie property.
 - `get_device_description(device_id)`: Gets the description of a Homie device.
 
 #### Example
@@ -52,11 +52,11 @@ local device_description = homie:get_device_description("device_id")
 
 The `virtual_device` command provides functions interacting for with virtual devices. The available functions are:
 
-- `set_str_value(subject, value)`: Sets the string value of a virtual device property.
-- `set_value(subject, value)`: Sets the value of a virtual device property.
-- `set_command(subject, value)`: Sets the value of a virtual device property.
-- `get_value(subject)`: Gets the current value of a virtual device property.
-- `get_property_description(subject)`: Gets the description of a virtual device property.
+- `set_str_value(property_ref, value)`: Sets the string value of a virtual device property.
+- `set_value(property_ref, value)`: Sets the value of a virtual device property.
+- `set_command(property_ref, value)`: Sets the value of a virtual device property.
+- `get_value(property_ref)`: Gets the current value of a virtual device property.
+- `get_property_description(property_ref)`: Gets the description of a virtual device property.
 - `get_device_description(device_id)`: Gets the description of a virtual device.
 - `set_device_alert(device_id, alert_id, alert)`: Sets an alert on a virtual device.
 - `clear_device_alert(device_id, alert_id)`: Clears an alert on a virtual device.
@@ -193,20 +193,16 @@ local from_value = event.from_value
 local timer_id = event.timer_id
 ```
 
-## Subjects
+## Property References
 
-A subject is a reference to a Homie property. It can be specified in two ways:
-
-- Using a topic-like notation: `device_id/node_id/property_id`
-- Using an object notation:
+A property reference identifies a Homie property using a slash-separated string notation:
 
 ```lua
-{
-  homie_domain = "homie_domain",
-  device_id = "device_id",
-  node_id = "node_id",
-  property_id = "property_id"
-}
+-- Without domain (default domain is used):
+"device_id/node_id/property_id"
+
+-- With explicit domain:
+"homie_domain/device_id/node_id/property_id"
 ```
 
 ## HomieValue to Native Lua Type Mapping
@@ -257,7 +253,7 @@ Here's an example of a current rule file that uses the Lua Runtime:
 ---
 name: test-device-toggle
 triggers:
-    - subjects:
+    - properties:
           - virtual-test-device/switch/action
       set_value: "toggle"
 actions:

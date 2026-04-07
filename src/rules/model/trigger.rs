@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use color_eyre::eyre::{self, eyre};
-use hc_homie5::DiscoveryAction;
+use hc_homie5::model::DiscoveryAction;
 use homie5::client::QoS;
 use homie5::{Homie5Message, HomieValue, PropertyRef};
 use serde::Deserialize;
@@ -11,25 +11,25 @@ use crate::cron_manager::CronEvent;
 use crate::mqtt_client::MqttPublishEvent;
 use crate::solar_events::{SolarEvent, SolarPhase};
 use crate::timer_manager::TimerEvent;
-use hc_homie5::MaterializedQuery;
-use hc_homie5::ValueCondition;
+use hc_homie5::query::MaterializedQuery;
+use hc_homie5::value::ValueCondition;
 
-use super::{deserialize_duration, Subject, WhileConditionSet};
+use super::{deserialize_duration, WhileConditionSet};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RuleTrigger {
-    SubjectTriggered {
+    PropertyTriggered {
         #[serde(default)]
-        subjects: Vec<Subject>,
+        properties: Vec<PropertyRef>,
         #[serde(default)]
         queries: Vec<MaterializedQuery>,
         trigger_value: ValueCondition<HomieValue>,
         r#while: Option<WhileConditionSet>,
     },
-    SubjectChanged {
+    PropertyChanged {
         #[serde(default)]
-        subjects: Vec<Subject>,
+        properties: Vec<PropertyRef>,
         #[serde(default)]
         queries: Vec<MaterializedQuery>,
         changed: ChangedTrigger,
@@ -74,7 +74,7 @@ pub enum RuleTrigger {
     },
     OnSetEventTrigger {
         #[serde(default)]
-        subjects: Vec<Subject>,
+        properties: Vec<PropertyRef>,
         #[serde(default)]
         queries: Vec<MaterializedQuery>,
         set_value: ValueCondition<String>,
@@ -203,11 +203,13 @@ impl TryFrom<DiscoveryAction> for RuleTriggerEvent<'_> {
     type Error = eyre::Error;
     fn try_from(action: DiscoveryAction) -> Result<Self, Self::Error> {
         match action {
-            DiscoveryAction::DevicePropertyValueChanged { prop, from, to } => Ok(RuleTriggerEvent::PropertyChanged {
-                prop: Cow::Owned(prop),
-                from: Cow::Owned(from),
-                to: Cow::Owned(to),
-            }),
+            DiscoveryAction::DevicePropertyValueChanged { prop, from, to, .. } => {
+                Ok(RuleTriggerEvent::PropertyChanged {
+                    prop: Cow::Owned(prop),
+                    from: Cow::Owned(from),
+                    to: Cow::Owned(to),
+                })
+            }
             DiscoveryAction::DevicePropertyValueTriggered { prop, value } => Ok(RuleTriggerEvent::PropertyTriggered {
                 prop: Cow::Owned(prop),
                 value: Cow::Owned(value),
@@ -221,11 +223,13 @@ impl<'a> TryFrom<&'a DiscoveryAction> for RuleTriggerEvent<'a> {
     type Error = eyre::Error;
     fn try_from(action: &'a DiscoveryAction) -> Result<Self, Self::Error> {
         match action {
-            DiscoveryAction::DevicePropertyValueChanged { prop, from, to } => Ok(RuleTriggerEvent::PropertyChanged {
-                prop: Cow::Borrowed(prop),
-                from: Cow::Borrowed(from),
-                to: Cow::Borrowed(to),
-            }),
+            DiscoveryAction::DevicePropertyValueChanged { prop, from, to, .. } => {
+                Ok(RuleTriggerEvent::PropertyChanged {
+                    prop: Cow::Borrowed(prop),
+                    from: Cow::Borrowed(from),
+                    to: Cow::Borrowed(to),
+                })
+            }
             DiscoveryAction::DevicePropertyValueTriggered { prop, value } => Ok(RuleTriggerEvent::PropertyTriggered {
                 prop: Cow::Borrowed(prop),
                 value: Cow::Borrowed(value),

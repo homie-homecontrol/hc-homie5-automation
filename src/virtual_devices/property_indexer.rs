@@ -55,7 +55,7 @@ impl PropertyIndexer {
     pub fn remove_indexes_for_virtual_device(&mut self, vd: &DeviceRef) {
         self.0.retain(|_, dev_entry| {
             dev_entry.retain(|_, prop_entry| {
-                prop_entry.retain(|vprop_ref| vprop_ref != vd);
+                prop_entry.retain(|vprop_ref| !vprop_ref.belongs_to_device(vd));
                 !prop_entry.is_empty()
             });
             !dev_entry.is_empty()

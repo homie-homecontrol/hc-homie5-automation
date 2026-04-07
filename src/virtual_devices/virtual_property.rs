@@ -7,7 +7,10 @@ use crate::{
     },
 };
 use color_eyre::eyre::{self, Result};
-use hc_homie5::{DebouncedSender, DelayedSender, DeviceStore, HomieMQTTClient, MappingResult, UniqueByExt};
+use hc_homie5::client::HomieMQTTClient;
+use hc_homie5::store::DeviceStore;
+use hc_homie5::util::{DebouncedSender, DelayedSender, UniqueByExt};
+use hc_homie5::value::MappingResult;
 
 use homie5::{
     device_description::HomieDeviceDescription, DeviceRef, Homie5ControllerProtocol, Homie5DeviceProtocol,
@@ -68,18 +71,18 @@ impl VirtualProperty {
 
             for member_spec in &compound_spec.members {
                 match member_spec {
-                    MemberSpec::Subject(subject) => {
-                        let m = PropertyCompoundMember::new(subject, None, devices, compound_spec.mapping.as_ref());
-                        prop_compound_members.insert(subject.clone().into(), m);
+                    MemberSpec::PropertyRef(prop_ref) => {
+                        let m = PropertyCompoundMember::new(prop_ref, None, devices, compound_spec.mapping.as_ref());
+                        prop_compound_members.insert(prop_ref.clone(), m);
                     }
-                    MemberSpec::SubjectMember { subject, mapping } => {
+                    MemberSpec::PropertyRefMember { property, mapping } => {
                         let m = PropertyCompoundMember::new(
-                            subject,
+                            property,
                             Some(mapping.clone()),
                             devices,
                             compound_spec.mapping.as_ref(),
                         );
-                        prop_compound_members.insert(subject.clone().into(), m);
+                        prop_compound_members.insert(property.clone(), m);
                     }
                     MemberSpec::MqttMember {
                         mqtt_input: input,
@@ -225,7 +228,10 @@ impl VirtualProperty {
         // update settable flag for property compound members
         for (node_id, _, prop_id, prop_desc) in desc.iter() {
             for (prop_ref, pcm) in self.prop_compound_members.iter_mut() {
-                if prop_ref == device_ref && prop_ref.node_id() == node_id && prop_ref.prop_id() == prop_id {
+                if prop_ref.belongs_to_device(device_ref)
+                    && prop_ref.node_id() == node_id
+                    && prop_ref.prop_id() == prop_id
+                {
                     pcm.settable = prop_desc.settable;
                 }
             }

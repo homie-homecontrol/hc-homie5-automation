@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use config_watcher::ConfigItemEvent;
-use hc_homie5::HomieDeviceCore;
-use hc_homie5::{HomieClientEvent, HomieDevice};
+use hc_homie5::client::HomieClientEvent;
+use hc_homie5::device::{HomieDevice, HomieDeviceCore};
 use hc_homie5_automation::utils::log_homie_message;
 use hc_homie5_automation::{
     app_state::AppState, app_state::ConnectionEvent, app_state::ConnectionState, rules::run_on_set_rules,
@@ -36,6 +36,9 @@ pub async fn handle_virtual_devices_client_event(event: HomieClientEvent, state:
                 }
                 _ => (),
             }
+        }
+        HomieClientEvent::MetaMessage(_) => {
+            // meta messages are handled by the discovery client
         }
         HomieClientEvent::Stop => {
             log::debug!("Virtual Device client stopped");

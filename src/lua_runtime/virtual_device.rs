@@ -1,6 +1,6 @@
 use super::{LuaDeviceRef, LuaHomieValue, LuaPropertyRef};
 use crate::virtual_devices::VirtualDeviceManagerProxy;
-use hc_homie5::HomieDeviceCore;
+use hc_homie5::device::HomieDeviceCore;
 use homie5::HomieID;
 use mlua::{ExternalResult, LuaSerdeExt, UserData};
 

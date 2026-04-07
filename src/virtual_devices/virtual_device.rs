@@ -3,14 +3,21 @@ use std::collections::{btree_map, HashMap, HashSet};
 
 use color_eyre::eyre::{self, eyre, Result};
 use config_watcher::ConfigItemHash;
-use hc_homie5::{homie_device, DeviceStore, HomieDevice};
+use hc_homie5::device::HomieDevice;
+use hc_homie5::homie_device;
+use hc_homie5::store::DeviceStore;
 use hc_homie5_smarthome::{
-    button_node::ButtonNodeBuilder, colorlight_node::ColorlightNodeBuilder, contact_node::ContactNodeBuilder,
-    dimmer_node::DimmerNodeBuilder, light_scene_node::LightSceneNodeBuilder, maintenance_node::MaintenanceNodeBuilder,
-    motion_node::MotionNodeBuilder, numeric_sensor_node::NumericSensorNodeBuilder,
-    orientation_node::OrientationNodeBuilder, shutter_node::ShutterNodeBuilder, switch_node::SwitchNodeBuilder,
-    thermostat_node::ThermostatNodeBuilder, tilt_node::TiltNodeBuilder, vibration_node::VibrationNodeBuilder,
-    water_sensor_node::WaterSensorNodeBuilder, weather_node::WeatherNodeBuilder,
+    air_quality_node::AirQualityNodeBuilder, alarm_node::AlarmNodeBuilder, battery_node::BatteryNodeBuilder,
+    button_node::ButtonNodeBuilder, camera_node::CameraNodeBuilder, climate_node::ClimateNodeBuilder,
+    co_node::CoNodeBuilder, color_node::ColorNodeBuilder, contact_node::ContactNodeBuilder,
+    daylight_node::DaylightNodeBuilder, garage_door_node::GarageDoorNodeBuilder,
+    illuminance_node::IlluminanceNodeBuilder, level_node::LevelNodeBuilder, link_node::LinkNodeBuilder,
+    lock_node::LockNodeBuilder, media_info_node::MediaInfoNodeBuilder, mediaplayer_node::MediaplayerNodeBuilder,
+    motion_node::MotionNodeBuilder, orientation_node::OrientationNodeBuilder, powermeter_node::PowermeterNodeBuilder,
+    scene_node::SceneNodeBuilder, shutter_node::ShutterNodeBuilder, smoke_node::SmokeNodeBuilder,
+    switch_node::SwitchNodeBuilder, text_node::TextNodeBuilder, thermostat_node::ThermostatNodeBuilder,
+    tilt_node::TiltNodeBuilder, timer_node::TimerNodeBuilder, valve_node::ValveNodeBuilder,
+    vibration_node::VibrationNodeBuilder, volume_node::VolumeNodeBuilder, water_sensor_node::WaterSensorNodeBuilder,
 };
 use homie5::{device_description::DeviceDescriptionBuilder, HomieValue, PropertyPointer, PropertyRef, ToTopic};
 use tokio::sync::mpsc;
@@ -60,44 +67,38 @@ impl VirtualDevice {
             let mut prop_ids = HashSet::new();
             let mut node_desc = if let Some(from_smarthome) = node_config.from_smarthome {
                 match from_smarthome {
-                    SmarthomeSpec::Button(button_node_config) => {
-                        ButtonNodeBuilder::new(&button_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::ColorLight(colorlight_node_config) => {
-                        ColorlightNodeBuilder::new(&colorlight_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Dimmer(dimmer_node_config) => {
-                        DimmerNodeBuilder::new(&dimmer_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::LightScene(light_scene_node_config) => {
-                        LightSceneNodeBuilder::new(&light_scene_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Maintenance(maintenance_node_config) => {
-                        MaintenanceNodeBuilder::new(maintenance_node_config.clone().unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Motion(motion_node_config) => {
-                        MotionNodeBuilder::new(&motion_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Shutter(shutter_node_config) => {
-                        ShutterNodeBuilder::new(&shutter_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Switch(switch_node_config) => {
-                        SwitchNodeBuilder::new(&switch_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Thermostat(thermostat_node_config) => {
-                        ThermostatNodeBuilder::new(&thermostat_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Vibration(vibration_node_config) => {
-                        VibrationNodeBuilder::new(&vibration_node_config.unwrap_or_default()).build()
-                    }
-                    SmarthomeSpec::Weather(weather_node_config) => {
-                        WeatherNodeBuilder::new(&weather_node_config.unwrap_or_default()).build()
-                    }
+                    SmarthomeSpec::AirQuality(cfg) => AirQualityNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Alarm(cfg) => AlarmNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Battery(cfg) => BatteryNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Button(cfg) => ButtonNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Camera(cfg) => CameraNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Climate(cfg) => ClimateNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Color(cfg) => ColorNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Daylight(cfg) => DaylightNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::GarageDoor(cfg) => GarageDoorNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Level(cfg) => LevelNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Link(cfg) => LinkNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Lock(cfg) => LockNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::MediaInfo(cfg) => MediaInfoNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Mediaplayer(cfg) => MediaplayerNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Powermeter(cfg) => PowermeterNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Scene(cfg) => SceneNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Shutter(cfg) => ShutterNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Switch(cfg) => SwitchNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Thermostat(cfg) => ThermostatNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Timer(cfg) => TimerNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Valve(cfg) => ValveNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Vibration(cfg) => VibrationNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Volume(cfg) => VolumeNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Co => CoNodeBuilder::new().build(),
                     SmarthomeSpec::Contact => ContactNodeBuilder::new().build(),
-                    SmarthomeSpec::Numeric => NumericSensorNodeBuilder::new().build(),
+                    SmarthomeSpec::Illuminance => IlluminanceNodeBuilder::new().build(),
+                    SmarthomeSpec::Motion => MotionNodeBuilder::new().build(),
                     SmarthomeSpec::Orientation => OrientationNodeBuilder::new().build(),
-                    SmarthomeSpec::WaterSensor => WaterSensorNodeBuilder::new().build(),
+                    SmarthomeSpec::Smoke => SmokeNodeBuilder::new().build(),
+                    SmarthomeSpec::Text => TextNodeBuilder::new().build(),
                     SmarthomeSpec::Tilt => TiltNodeBuilder::new().build(),
+                    SmarthomeSpec::WaterSensor => WaterSensorNodeBuilder::new().build(),
                 }
             } else {
                 vnode_desc.into()

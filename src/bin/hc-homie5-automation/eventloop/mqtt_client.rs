@@ -12,6 +12,7 @@ pub async fn handle_mqtt_client_event(event: MqttClientEvent, state: &mut AppSta
             let con_event = state.mqtt_state.change_state(ConnectionState::Connected);
             if let Some(ConnectionEvent::Reconnect) = con_event {
                 state.mqtt_client.resubscribe().await?;
+                state.meta.republish_all().await?;
             }
             state.start_watchers().await;
         }

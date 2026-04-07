@@ -1,5 +1,6 @@
 use color_eyre::eyre;
-use hc_homie5::{homie_device, HomieDevice};
+use hc_homie5::device::HomieDevice;
+use hc_homie5::homie_device;
 use homie5::{device_description::DeviceDescriptionBuilder, PropertyRef};
 
 #[homie_device]

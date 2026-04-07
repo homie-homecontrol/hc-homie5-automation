@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::Result;
 
-use hc_homie5::HomieDevice;
-use hc_homie5::HomieDeviceCore;
+use hc_homie5::device::{HomieDevice, HomieDeviceCore};
 use hc_homie5_automation::app_state::{AppEvent, AppState};
 
 pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<bool> {
@@ -26,6 +25,8 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
             // Stop configuration watchers
             state.rule_watcher_handle.stop().await?;
             state.virtual_devices_watcher_handle.stop().await?;
+            state.lua_files_watcher_handle.stop().await?;
+            state.meta_watcher_handle.stop().await?;
 
             // stop discovery and send disconnect signal for all devices
             state.dm.stop_discover().await?;

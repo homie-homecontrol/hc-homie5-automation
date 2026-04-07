@@ -104,12 +104,12 @@ impl RuleManager {
         for (_, rule) in self.iter_mut() {
             for trigger in rule.triggers.iter_mut() {
                 match trigger {
-                    crate::rules::RuleTrigger::SubjectTriggered { ref mut queries, .. } => {
+                    crate::rules::RuleTrigger::PropertyTriggered { ref mut queries, .. } => {
                         for query in queries.iter_mut() {
                             query.add_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
                         }
                     }
-                    crate::rules::RuleTrigger::SubjectChanged { ref mut queries, .. } => {
+                    crate::rules::RuleTrigger::PropertyChanged { ref mut queries, .. } => {
                         for query in queries.iter_mut() {
                             query.add_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
                         }
@@ -127,12 +127,12 @@ impl RuleManager {
         for (_, rule) in self.iter_mut() {
             for trigger in rule.triggers.iter_mut() {
                 match trigger {
-                    crate::rules::RuleTrigger::SubjectTriggered { ref mut queries, .. } => {
+                    crate::rules::RuleTrigger::PropertyTriggered { ref mut queries, .. } => {
                         for query in queries.iter_mut() {
                             query.remove_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
                         }
                     }
-                    crate::rules::RuleTrigger::SubjectChanged { ref mut queries, .. } => {
+                    crate::rules::RuleTrigger::PropertyChanged { ref mut queries, .. } => {
                         for query in queries.iter_mut() {
                             query.remove_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
                         }

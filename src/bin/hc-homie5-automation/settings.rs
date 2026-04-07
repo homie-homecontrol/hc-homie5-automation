@@ -1,11 +1,11 @@
 use color_eyre::eyre::{self, eyre};
 use homie5::{HomieDomain, HomieID};
 use once_cell::sync::Lazy;
-use rand::{distr::Alphanumeric, Rng};
 use simple_kv_store::KubernetesResource;
-use std::{env, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
-use hc_homie5_automation::{unwrap_or_exit::UnwrapOrExit, virtual_devices::VirtualDeviceManagerConfig};
+use hc_homie5::settings::{self, HomieSettings};
+use hc_homie5_automation::virtual_devices::VirtualDeviceManagerConfig;
 
 // pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| env!("CARGO_CRATE_NAME").replace('-', "_").to_uppercase());
 pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| "HCACTL".to_string());
@@ -14,20 +14,26 @@ pub static SETTINGS: Lazy<Settings> = Lazy::new(Settings::default);
 
 pub const CHANNEL_CAPACITY: usize = 65535;
 
-fn env_name(name: &str) -> String {
-    format!("{}_{}", *ENV_PREFIX, name)
-}
-
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Settings {
     pub homie: HomieSettings,
     pub app: AppSettings,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            homie: HomieSettings::from_env(&ENV_PREFIX, "hcactl-", HomieDomain::Default),
+            app: AppSettings::default(),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct AppSettings {
     pub rules_config: ConfigBackend,
     pub virtual_devices_config: ConfigBackend,
+    pub meta_config: ConfigBackend,
     pub lua_files_config: ConfigBackend,
     pub value_store_config: ValueStoreConfig,
     pub location: LocationConfig,
@@ -168,26 +174,41 @@ impl TryFrom<String> for LocationConfig {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            rules_config: generic_setting(
+            rules_config: settings::generic_setting(
+                &ENV_PREFIX,
                 "RULES_CONFIG",
                 ConfigBackend::File {
                     path: PathBuf::from("./rules"),
                 },
             ),
-            virtual_devices_config: generic_setting(
+            virtual_devices_config: settings::generic_setting(
+                &ENV_PREFIX,
                 "VIRTUAL_DEVICES_CONFIG",
                 ConfigBackend::File {
                     path: PathBuf::from("./virtual_devices"),
                 },
             ),
-            lua_files_config: generic_setting(
+            meta_config: settings::generic_setting(
+                &ENV_PREFIX,
+                "META_CONFIG",
+                ConfigBackend::File {
+                    path: PathBuf::from("./meta"),
+                },
+            ),
+            lua_files_config: settings::generic_setting(
+                &ENV_PREFIX,
                 "LUA_MODULE_CONFIG",
                 ConfigBackend::File {
                     path: PathBuf::from("./lua"),
                 },
             ),
-            value_store_config: generic_setting("VALUE_STORE_CONFIG", ValueStoreConfig::InMemory),
-            location: generic_setting(
+            value_store_config: settings::generic_setting(
+                &ENV_PREFIX,
+                "VALUE_STORE_CONFIG",
+                ValueStoreConfig::InMemory,
+            ),
+            location: settings::generic_setting(
+                &ENV_PREFIX,
                 "LOCATION",
                 LocationConfig {
                     longitude: 0f64,
@@ -199,90 +220,21 @@ impl Default for AppSettings {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct HomieSettings {
-    pub hostname: String,
-    pub port: u16,
-    pub username: String,
-    pub password: String,
-    pub client_id: String,
-    pub homie_domain: HomieDomain,
-    pub controller_id: HomieID,
-    pub controller_name: String,
-}
-
-impl Default for HomieSettings {
-    fn default() -> Self {
-        let hostname = string_setting("HOMIE_HOST", "localhost");
-        let port = number_setting("HOMIE_PORT", 1883u16);
-
-        let username = string_setting("HOMIE_USERNAME", String::default());
-        let password = string_setting("HOMIE_PASSWORD", String::default());
-        let client_id = string_setting(
-            "HOMIE_CLIENT_ID",
-            format!(
-                "hcactl-{}",
-                rand::rng()
-                    .sample_iter(&Alphanumeric)
-                    .take(8)
-                    .map(char::from)
-                    .collect::<String>()
-            ),
-        );
-        let homie_domain = generic_setting("HOMIE_DOMAIN", HomieDomain::Default);
-        let controller_id = generic_setting("HOMIE_CTRL_ID", HomieID::new_const("hc-homie5-automation-ctrl"));
-        let controller_name = string_setting("HOMIE_CTRL_NAME", "Homecontrol Automation Controller");
-
-        Self {
-            hostname,
-            port,
-            username,
-            password,
-            client_id,
-            homie_domain,
-            controller_id,
-            controller_name,
-        }
+pub fn vdm_config_from_homie(settings: &HomieSettings) -> VirtualDeviceManagerConfig {
+    VirtualDeviceManagerConfig {
+        hostname: settings.hostname.clone(),
+        port: settings.port,
+        username: settings.username.clone(),
+        password: settings.password.clone(),
+        client_id: settings.client_id.clone(),
+        homie_domain: settings.homie_domain.clone(),
+        controller_id: settings
+            .controller_id
+            .clone()
+            .unwrap_or_else(|| HomieID::new_const("hc-homie5-automation-ctrl")),
+        controller_name: settings
+            .controller_name
+            .clone()
+            .unwrap_or_else(|| "Homecontrol Automation Controller".to_string()),
     }
-}
-
-impl From<HomieSettings> for VirtualDeviceManagerConfig {
-    fn from(value: HomieSettings) -> Self {
-        Self {
-            hostname: value.hostname,
-            port: value.port,
-            username: value.username,
-            password: value.password,
-            client_id: value.client_id,
-            homie_domain: value.homie_domain,
-            controller_id: value.controller_id,
-            controller_name: value.controller_name,
-        }
-    }
-}
-
-fn string_setting(name: &str, default: impl Into<String>) -> String {
-    env::var(env_name(name)).ok().unwrap_or(default.into())
-}
-
-fn number_setting<T>(name: &str, default: T) -> T
-where
-    T: FromStr,
-    T::Err: std::fmt::Display, // Explicit Debug requirement
-{
-    env::var(env_name(name))
-        .ok()
-        .map(|value| value.parse::<T>().unwrap_or_exit("Not a valid number!"))
-        .unwrap_or(default)
-}
-
-fn generic_setting<T>(name: &str, default: T) -> T
-where
-    T: TryFrom<String>,
-    T::Error: std::fmt::Display, // Explicit Debug requirement
-{
-    env::var(env_name(name))
-        .ok()
-        .map(|value| value.try_into().unwrap_or_exit("Invalid setting supplied!"))
-        .unwrap_or(default)
 }

@@ -39,7 +39,7 @@
                 "type": { "type": "string" },
                 "from_smarthome": {
                     "$ref": "#/definitions/SmarthomeSpec",
-                    "description": "Use predefined homecontrol smarthome node definitions. Valid 'type' values include: button, colorlight, dimmer, lightscene, maintenance, motion, shutter, switch, thermostat, vibration, weather, contact, numeric, orientation, watersensor, tilt."
+                    "description": "Use predefined homecontrol smarthome node definitions."
                 },
                 "pass_through": { "type": "boolean" },
                 "property_opts": { "$ref": "#/definitions/VirtualPropertyOptions" },
@@ -54,147 +54,40 @@
         },
         "SmarthomeSpec": {
             "title": "SmarthomeSpec",
-            "description": "Defines the specification for a smarthome node. Valid 'type' values include: button, colorlight, dimmer, lightscene, maintenance, motion, shutter, switch, thermostat, vibration, weather, contact, numeric, orientation, watersensor, tilt.",
+            "description": "Defines the specification for a smarthome node.",
             "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "button" },
-                        "config": { "$ref": "#/definitions/ButtonNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "colorlight" },
-                        "config": { "$ref": "#/definitions/ColorlightNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "dimmer" },
-                        "config": { "$ref": "#/definitions/DimmerNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "lightscene" },
-                        "config": { "$ref": "#/definitions/LightSceneNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "maintenance" },
-                        "config": { "$ref": "#/definitions/MaintenanceNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "motion" },
-                        "config": { "$ref": "#/definitions/MotionNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "shutter" },
-                        "config": { "$ref": "#/definitions/ShutterNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "switch" },
-                        "config": { "$ref": "#/definitions/SwitchNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "thermostat" },
-                        "config": { "$ref": "#/definitions/ThermostatNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "vibration" },
-                        "config": { "$ref": "#/definitions/VibrationNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "weather" },
-                        "config": { "$ref": "#/definitions/WeatherNodeConfig" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "contact" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "numeric" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "orientation" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "watersensor" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "type": { "const": "tilt" }
-                    },
-                    "required": ["type"],
-                    "additionalProperties": false
-                }
+                { "type": "object", "properties": { "type": { "const": "air-quality" }, "config": { "$ref": "#/definitions/AirQualityNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "alarm" }, "config": { "$ref": "#/definitions/AlarmNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "battery" }, "config": { "$ref": "#/definitions/BatteryNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "button" }, "config": { "$ref": "#/definitions/ButtonNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "camera" }, "config": { "$ref": "#/definitions/CameraNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "climate" }, "config": { "$ref": "#/definitions/ClimateNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "color" }, "config": { "$ref": "#/definitions/ColorNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "daylight" }, "config": { "$ref": "#/definitions/DaylightNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "garage-door" }, "config": { "$ref": "#/definitions/GarageDoorNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "level" }, "config": { "$ref": "#/definitions/LevelNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "link" }, "config": { "$ref": "#/definitions/LinkNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "lock" }, "config": { "$ref": "#/definitions/LockNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "media-info" }, "config": { "$ref": "#/definitions/MediaInfoNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "mediaplayer" }, "config": { "$ref": "#/definitions/MediaplayerNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "powermeter" }, "config": { "$ref": "#/definitions/PowermeterNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "scene" }, "config": { "$ref": "#/definitions/SceneNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "shutter" }, "config": { "$ref": "#/definitions/ShutterNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "switch" }, "config": { "$ref": "#/definitions/SwitchNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "thermostat" }, "config": { "$ref": "#/definitions/ThermostatNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "timer" }, "config": { "$ref": "#/definitions/TimerNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "valve" }, "config": { "$ref": "#/definitions/ValveNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "vibration" }, "config": { "$ref": "#/definitions/VibrationNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "volume" }, "config": { "$ref": "#/definitions/VolumeNodeConfig" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "co" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "contact" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "illuminance" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "motion" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "orientation" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "smoke" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "text" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "tilt" } }, "required": ["type"], "additionalProperties": false },
+                { "type": "object", "properties": { "type": { "const": "watersensor" } }, "required": ["type"], "additionalProperties": false }
             ]
         },
         "ButtonNodeConfig": {
@@ -212,7 +105,7 @@
             "type": "string",
             "enum": ["press", "long-press", "double-press", "release", "long-release", "continuous"]
         },
-        "ColorlightNodeConfig": {
+        "ColorNodeConfig": {
             "type": "object",
             "properties": {
                 "settable": { "type": "boolean" },
@@ -230,7 +123,7 @@
             "type": "string",
             "enum": ["rgb", "hsv", "xyz"]
         },
-        "DimmerNodeConfig": {
+        "LevelNodeConfig": {
             "type": "object",
             "properties": {
                 "settable": { "type": "boolean" }
@@ -238,7 +131,7 @@
             "required": ["settable"],
             "additionalProperties": false
         },
-        "LightSceneNodeConfig": {
+        "SceneNodeConfig": {
             "type": "object",
             "properties": {
                 "scenes": {
@@ -250,23 +143,150 @@
             "required": ["scenes", "settable"],
             "additionalProperties": false
         },
-        "MaintenanceNodeConfig": {
+        "BatteryNodeConfig": {
             "type": "object",
             "properties": {
-                "low_battery": { "type": "boolean" },
-                "battery_level": { "type": "boolean" },
-                "reachable": { "type": "boolean" },
-                "last_update": { "type": "boolean" }
+                "level": { "type": "boolean" },
+                "voltage": { "type": "boolean" }
             },
-            "required": ["low_battery", "battery_level", "reachable", "last_update"],
+            "required": ["level", "voltage"],
             "additionalProperties": false
         },
-        "MotionNodeConfig": {
+        "LinkNodeConfig": {
             "type": "object",
             "properties": {
-                "lux": { "type": "boolean" }
+                "signal": { "type": "boolean" },
+                "quality": { "type": "boolean" },
+                "last_seen": { "type": "boolean" }
             },
-            "required": ["lux"],
+            "required": ["signal", "quality", "last_seen"],
+            "additionalProperties": false
+        },
+        "MediaplayerNodeConfig": {
+            "type": "object",
+            "properties": {
+                "next": { "type": "boolean" },
+                "previous": { "type": "boolean" },
+                "forward": { "type": "boolean" },
+                "rewind": { "type": "boolean" },
+                "stop": { "type": "boolean" },
+                "shuffle": { "type": "boolean" },
+                "repeat": { "type": "boolean" }
+            },
+            "required": ["next", "previous", "forward", "rewind", "stop", "shuffle", "repeat"],
+            "additionalProperties": false
+        },
+        "MediaInfoNodeConfig": {
+            "type": "object",
+            "properties": {
+                "subtitle": { "type": "boolean" },
+                "description": { "type": "boolean" },
+                "artwork": { "type": "boolean" },
+                "progress": { "type": "boolean" },
+                "length": { "type": "boolean" },
+                "seekable": { "type": "boolean" },
+                "metadata": { "type": "boolean" }
+            },
+            "required": ["subtitle", "description", "artwork", "progress", "length", "seekable", "metadata"],
+            "additionalProperties": false
+        },
+        "VolumeNodeConfig": {
+            "type": "object",
+            "properties": {
+                "mute": { "type": "boolean" }
+            },
+            "required": ["mute"],
+            "additionalProperties": false
+        },
+        "AirQualityNodeConfig": {
+            "type": "object",
+            "properties": {
+                "co2": { "type": "boolean" },
+                "voc": { "type": "boolean" },
+                "pm25": { "type": "boolean" },
+                "pm10": { "type": "boolean" },
+                "aqi": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "AlarmNodeConfig": {
+            "type": "object",
+            "properties": {
+                "sound": { "type": "boolean" },
+                "sounds": { "type": "array", "items": { "type": "string" } },
+                "duration": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "CameraNodeConfig": {
+            "type": "object",
+            "properties": {
+                "snapshot": { "type": "boolean" },
+                "recording": { "type": "boolean" },
+                "motion_detected": { "type": "boolean" },
+                "object_detected": { "type": "boolean" },
+                "pan": { "type": "boolean" },
+                "tilt": { "type": "boolean" },
+                "zoom": { "type": "boolean" },
+                "zoom_max": { "type": "number" }
+            },
+            "additionalProperties": false
+        },
+        "DaylightNodeConfig": {
+            "type": "object",
+            "properties": {
+                "phase": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "GarageDoorNodeConfig": {
+            "type": "object",
+            "properties": {
+                "settable": { "type": "boolean" },
+                "action_open": { "type": "boolean" },
+                "action_close": { "type": "boolean" },
+                "action_trigger": { "type": "boolean" },
+                "action_stop": { "type": "boolean" },
+                "state_opening": { "type": "boolean" },
+                "state_closing": { "type": "boolean" },
+                "state_stopped": { "type": "boolean" },
+                "state_unknown": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "LockNodeConfig": {
+            "type": "object",
+            "properties": {
+                "settable": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "PowermeterNodeConfig": {
+            "type": "object",
+            "properties": {
+                "power": { "type": "boolean" },
+                "current": { "type": "boolean" },
+                "voltage": { "type": "boolean" },
+                "frequency": { "type": "boolean" },
+                "consumption": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "TimerNodeConfig": {
+            "type": "object",
+            "properties": {
+                "label": { "type": "boolean" },
+                "remaining": { "type": "boolean" },
+                "trigger_time": { "type": "boolean" },
+                "created": { "type": "boolean" }
+            },
+            "additionalProperties": false
+        },
+        "ValveNodeConfig": {
+            "type": "object",
+            "properties": {
+                "settable": { "type": "boolean" }
+            },
             "additionalProperties": false
         },
         "ShutterNodeConfig": {
@@ -336,7 +356,7 @@
             "required": ["vibration_strength"],
             "additionalProperties": false
         },
-        "WeatherNodeConfig": {
+        "ClimateNodeConfig": {
             "type": "object",
             "properties": {
                 "temperature": { "type": "boolean" },

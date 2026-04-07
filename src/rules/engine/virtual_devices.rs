@@ -1,5 +1,5 @@
 use crate::rules::RuleTrigger;
-use hc_homie5::DeviceStore;
+use hc_homie5::store::DeviceStore;
 use homie5::{Homie5Message, PropertyRef};
 
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
@@ -22,23 +22,23 @@ pub async fn run_on_set_rules(event: &Homie5Message, ctx: &RuleContext<'_>) {
 fn match_prop_set(prop: &PropertyRef, on_set_value: &String, trigger: &RuleTrigger, devices: &DeviceStore) -> bool {
     match trigger {
         RuleTrigger::OnSetEventTrigger {
-            subjects: on_set_subjects,
+            properties: on_set_properties,
             queries: on_set_queries,
             set_value,
             r#while,
         } => {
-            // Check if either subjects or queries are non-empty
-            let subjects_match = !on_set_subjects.is_empty() && on_set_subjects.iter().any(|subj| subj == prop);
+            // Check if either properties or queries are non-empty
+            let properties_match = !on_set_properties.is_empty() && on_set_properties.iter().any(|p| p == prop);
             let queries_match =
                 !on_set_queries.is_empty() && on_set_queries.iter().any(|query| query.match_query(prop));
 
             // If both are empty, return false
-            if on_set_subjects.is_empty() && on_set_queries.is_empty() {
+            if on_set_properties.is_empty() && on_set_queries.is_empty() {
                 return false;
             }
 
-            // If neither subjects nor queries match, return false
-            if !(subjects_match || queries_match) {
+            // If neither properties nor queries match, return false
+            if !(properties_match || queries_match) {
                 return false;
             }
 

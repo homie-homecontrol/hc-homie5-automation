@@ -3,10 +3,11 @@ use std::{fs, iter, time::Duration};
 use color_eyre::eyre::Result;
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState, ConnectionState},
-    homie::set_default_homie_domain,
     lua_runtime::LuaModuleManager,
+    meta::{MetaConfig, MetaManager},
     utils::throttle_channel,
 };
+use homie5::set_fallback_homie_domain;
 use simple_kv_store::{InMemoryStore, KeyValueStore, KubernetesStore, SQLiteStore};
 use tokio::sync::mpsc::{self};
 
@@ -14,7 +15,7 @@ use crate::eventloop::EventMultiPlexer;
 
 use crate::settings::{ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
-use hc_homie5::{HomieClientHandle, MqttClientConfig};
+use hc_homie5::client::HomieClientHandle;
 use hc_homie5_automation::{
     cron_manager::CronManager,
     device_manager::DeviceManager,
@@ -37,15 +38,11 @@ pub async fn initialize_app(
 ) -> Result<(EventMultiPlexer, HomieClientHandle, HomieClientHandle, MqttClientHandle, SolarEventHandle, AppState)> {
     let settings = &SETTINGS;
 
-    set_default_homie_domain(settings.homie.homie_domain.clone());
+    set_fallback_homie_domain(settings.homie.homie_domain.clone());
 
     let (app_event_sender, app_event_receiver) = mpsc::channel::<AppEvent>(CHANNEL_CAPACITY);
 
-    let homie_client_options = MqttClientConfig::new(&settings.homie.hostname)
-        .client_id(&settings.homie.client_id)
-        .port(settings.homie.port)
-        .username(&settings.homie.username)
-        .password(&settings.homie.password);
+    let homie_client_options = settings.homie.to_mqtt_client_config();
 
     // Setup device discovery
     // =====================================================
@@ -55,14 +52,13 @@ pub async fn initialize_app(
     // Setup MQTT Client
     // ===============================================
 
-    let mqtt_client_options = MqttClientConfig::new(&settings.homie.hostname)
-        .client_id(format!("{}-mqtt", &settings.homie.client_id))
-        .port(settings.homie.port)
-        .username(&settings.homie.username)
-        .password(&settings.homie.password);
+    let mqtt_client_options = settings
+        .homie
+        .to_mqtt_client_config()
+        .client_id(format!("{}-mqtt", &settings.homie.client_id));
 
     let (mqtt_client_handle, mqtt_client, mqtt_event_receiver) =
-        run_mqtt_client(mqtt_client_options.to_mqtt_options(), 65535)?;
+        run_mqtt_client(mqtt_client_options.to_mqtt_options()?, 65535)?;
 
     // Setup homie device for controller
     // =====================================================
@@ -71,7 +67,7 @@ pub async fn initialize_app(
         dm.clone(),
         mqtt_client.clone(),
         app_event_sender.clone(),
-        settings.homie.clone().into(),
+        crate::settings::vdm_config_from_homie(&settings.homie),
     )
     .await?;
 
@@ -106,13 +102,12 @@ pub async fn initialize_app(
                 backend::run_configmap_watcher(name.to_string(), namespace.to_string())
             }
             ConfigBackend::Mqtt { topic } => {
-                let mco = MqttClientConfig::new(&settings.homie.hostname)
-                    .client_id(format!("{}-cfg-r", &settings.homie.client_id))
-                    .port(settings.homie.port)
-                    .username(&settings.homie.username)
-                    .password(&settings.homie.password);
+                let mco = settings
+                    .homie
+                    .to_mqtt_client_config()
+                    .client_id(format!("{}-cfg-r", &settings.homie.client_id));
                 log::debug!("Using Mqtt backend for virtual devices");
-                backend::run_mqtt_watcher(mco.to_mqtt_options(), topic, 1024)
+                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
             }
         },
         &YamlTokenizer,
@@ -134,13 +129,12 @@ pub async fn initialize_app(
                 backend::run_configmap_watcher(name.to_string(), namespace.to_string())
             }
             ConfigBackend::Mqtt { topic } => {
-                let mco = MqttClientConfig::new(&settings.homie.hostname)
-                    .client_id(format!("{}-cfg-vd", &settings.homie.client_id))
-                    .port(settings.homie.port)
-                    .username(&settings.homie.username)
-                    .password(&settings.homie.password);
+                let mco = settings
+                    .homie
+                    .to_mqtt_client_config()
+                    .client_id(format!("{}-cfg-vd", &settings.homie.client_id));
                 log::debug!("Using Mqtt backend for virtual devices");
-                backend::run_mqtt_watcher(mco.to_mqtt_options(), topic, 1024)
+                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
             }
         },
         &YamlTokenizer,
@@ -162,17 +156,53 @@ pub async fn initialize_app(
                 backend::run_configmap_watcher(name.to_string(), namespace.to_string())
             }
             ConfigBackend::Mqtt { topic } => {
-                let mco = MqttClientConfig::new(&settings.homie.hostname)
-                    .client_id(format!("{}-cfg-lua", &settings.homie.client_id))
-                    .port(settings.homie.port)
-                    .username(&settings.homie.username)
-                    .password(&settings.homie.password);
+                let mco = settings
+                    .homie
+                    .to_mqtt_client_config()
+                    .client_id(format!("{}-cfg-lua", &settings.homie.client_id));
                 log::debug!("Using Mqtt backend for lua modules");
-                backend::run_mqtt_watcher(mco.to_mqtt_options(), topic, 1024)
+                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
             }
         },
         &LuaFileTokenizer,
         deserialize_lua_file,
+    )?;
+
+    let deserialize_meta = |doc: &str| -> std::result::Result<MetaConfig, String> {
+        serde_yaml_ng::from_str::<MetaConfig>(doc).map_err(|err| {
+            let preview = doc.lines().take(3).collect::<Vec<_>>().join(" | ");
+            let msg = format!(
+                "Meta overlay parse error: {}. Hint: annotation values must be strings or string arrays. Document preview: {}",
+                err, preview
+            );
+            log::error!("{}", msg);
+            msg
+        })
+    };
+
+    let (meta_watcher_handle, meta_receiver) = run_config_item_watcher::<MetaConfig, _>(
+        || match &settings.app.meta_config {
+            ConfigBackend::File { path } => {
+                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
+                    panic!("Configured meta folder [{}] does not exist!", path.as_os_str().to_string_lossy())
+                });
+                backend::run_config_file_watcher(absolute_path, "*.yaml")
+            }
+            ConfigBackend::Kubernetes { name, namespace } => {
+                log::debug!("Using Kubernetes backend for meta overlays");
+                backend::run_configmap_watcher(name.to_string(), namespace.to_string())
+            }
+            ConfigBackend::Mqtt { topic } => {
+                let mco = settings
+                    .homie
+                    .to_mqtt_client_config()
+                    .client_id(format!("{}-cfg-meta", &settings.homie.client_id));
+                log::debug!("Using Mqtt backend for meta overlays");
+                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
+            }
+        },
+        &YamlTokenizer,
+        deserialize_meta,
     )?;
     // Simple Value store
     // =====================================================
@@ -197,6 +227,7 @@ pub async fn initialize_app(
         // throttle new device detection and creation to make sure not to overload the mqtt broker
         throttle_channel(vdevices_receiver, Duration::from_millis(10)),
         lua_files_receiver,
+        throttle_channel(meta_receiver, Duration::from_millis(10)),
         timers_receiver,
         cron_receiver,
         mqtt_event_receiver,
@@ -216,16 +247,19 @@ pub async fn initialize_app(
             timers,
             solar_events,
             cron,
-            mqtt_client,
+            mqtt_client: mqtt_client.clone(),
             app_event_sender,
             should_exit: false,
             mqtt_state: ConnectionState::Init,
             discovery_state: ConnectionState::Init,
             virtual_devices_state: ConnectionState::Init,
             lua_module_manager: LuaModuleManager::new(),
+            meta: MetaManager::new(settings.homie.homie_domain.clone(), mqtt_client.clone()),
+            meta_handler: hc_homie5::controller::MetaOverlayHandler::new(settings.homie.homie_domain.clone()),
             value_store,
             rule_watcher_handle: rules_watcher_handle,
             virtual_devices_watcher_handle: vdevices_watcher_handle,
+            meta_watcher_handle,
             lua_files_watcher_handle,
         },
     ))

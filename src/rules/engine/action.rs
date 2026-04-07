@@ -10,8 +10,8 @@ use crate::{
 };
 use color_eyre::eyre::Result;
 use config_watcher::ConfigItemHash;
-use hc_homie5::HomieMQTTClient;
-use hc_homie5::MappingResult;
+use hc_homie5::client::HomieMQTTClient;
+use hc_homie5::value::MappingResult;
 use homie5::{HomieValue, ToTopic};
 use mlua::ExternalResult;
 use mlua::Lua;

@@ -1,5 +1,5 @@
 use crate::{rules::RuleTrigger, timer_manager::TimerEvent};
-use hc_homie5::DeviceStore;
+use hc_homie5::store::DeviceStore;
 
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 
