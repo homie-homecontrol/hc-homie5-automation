@@ -1,5 +1,5 @@
 # Use the cargo-chef image as the starting point
-FROM lukemathwalker/cargo-chef:0.1.71-rust-1.93-bookworm
+FROM lukemathwalker/cargo-chef:0.1.77-rust-1.93-bookworm
 
 # Install necessary system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
