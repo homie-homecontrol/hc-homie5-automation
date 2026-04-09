@@ -34,8 +34,12 @@ Settings are passed via environment variables. The environment variables are pre
 | `HCACTL_VIRTUAL_DEVICES_CONFIG` | Specifies the backend for virtual devices storage | `file:/path/to/virtual_devices`,<br />`mqtt:some/topic`,<br />`kubernetes:config-name[,namespace]` | file:/service/virtual_devices | `"kubernetes:hcactl-virtual-devices,smarthome"` |
 | `HCACTL_META_CONFIG`            | Specifies the backend for manual metadata overlays | `file:/path/to/meta`,<br/>`mqtt:some/topic`,<br /> `kubernetes:config-name[,namespace]`            | file:/service/meta            | `"file:/data/meta"`                             |
 | `HCACTL_LUA_MODULE_CONFIG`      | Specifies the backend for lua module storage      | `file:/path/to/lua`,<br/>`mqtt:some/topic`,<br /> `kubernetes:config-name[,namespace]`             | file:/service/lua             | `"file:/data/lua_scripts"`                      |
-| `HCACTL_VALUE_STORE_CONFIG`     | Defines how values are stored                     | `inmemory`,<br />`sqlite:/path/to/database.db`,<br />`kubernetes:secret`                           | inmemory                      | `"sqlite:/sevice/values.db"`                    |
+| `HCACTL_VALUE_STORE_CONFIG`     | Defines how values are stored                     | `inmemory`,<br />`sqlite:/path/to/database.db`,<br />`kubernetes:secret\|configmap,name[,namespace]` | inmemory                      | `"sqlite:/service/values.db"`                   |
 | `HCACTL_LOCATION`               | Defines the geographical location                 | `<latitude>,<longitude>,<elevation>`                                                               | `0,0,0`                       | `"48.1351,11.5820,519"`                         |
+
+> Note:
+> - For direct binary runs, application defaults are relative paths like `file:./rules`, `file:./virtual_devices`, `file:./meta`, and `file:./lua`.
+> - Container deployments usually set explicit absolute paths via environment variables.
 
 ### Rules, Virtual Devices, Meta and Lua Modules config backends
 
