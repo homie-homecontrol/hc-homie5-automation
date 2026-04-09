@@ -4,7 +4,7 @@
 
 The following chapters describe some general concepts used in the different configuration files.
 
-# Property Reference
+## Property Reference
 
 A property reference identifies a homie property using a slash-separated topic-like notation.
 
@@ -14,7 +14,7 @@ A property reference identifies a homie property using a slash-separated topic-l
 property: device/node/property
 ```
 
-The homie domain is omitted in this form, the one configured via `HACTL_HOMIE_DOMAIN` environment variable will be substituted automatically.
+The homie domain is omitted in this form. The domain configured via `HCACTL_HOMIE_DOMAIN` is substituted automatically.
 
 ### Full form (with domain)
 
@@ -24,11 +24,9 @@ property: homie_domain/device/node/property
 
 **Note**: As of now, `hc-homie5-automation` only operates within one homie_domain. This might change in the future, so at the moment specifying the homie_domain is more or less useless.
 
-# Homie Value
+## Homie Value
 
-<small> back to [readme](../README.md)</small>
-
-In order to be type safe homie values are expressed with their datatype in all the rules and virtual devices configuration yaml files.
+To keep values type-safe, Homie values are expressed with their datatype in rule and virtual-device YAML files.
 
 | **Homie Type** | **Example**                        |
 | -------------- | ---------------------------------- |
@@ -58,7 +56,7 @@ Also note that homie-value is a yaml object so make sure to always put it in a n
 
 ```
 
-# Value condition
+## Value condition
 
 Whenever a matching value needs to be defined (either in a rule [e.g. `trigger_value`] or for a virtual devices [e.g. in a `mapping definition`]) the type value condition is used.
 
@@ -177,7 +175,7 @@ trigger_value:
 
 Triggers for **all property values**.
 
-# Query
+## Query
 
 With queries properties can be queried based on their definition as well as their node's and device's definition.
 

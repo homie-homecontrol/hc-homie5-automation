@@ -127,7 +127,7 @@ nodes:
   - id: dimmer
     name: window contact states
     from_smarthome:
-      type: dimmer
+      type: level
     properties:
       - id: brightness
         datatype: integer
@@ -275,7 +275,7 @@ name: Kitchen Lights
 nodes:
   - id: dimmer
     from_smarthome:
-      type: dimmer
+      type: level
     properties:
       - id: brightness
         datatype: integer
@@ -292,7 +292,7 @@ name: Floor Lamps
 nodes:
   - id: light
     from_smarthome:
-      type: dimmer
+      type: level
     properties:
       - id: brightness
         datatype: integer
@@ -350,7 +350,7 @@ nodes:
   - id: dimmer
     name: Dimmer Group
     from_smarthome:
-      type: dimmer
+      type: level
     properties:
       - id: brightness
         datatype: integer

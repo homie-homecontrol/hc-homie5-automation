@@ -18,14 +18,14 @@ actions:
   - ...
 ```
 
-This document will describe all the 3 parts of a rule (name, trigger, action) in the following chapters.
+This document describes all 3 parts of a rule (name, trigger, action).
 
 ### Example Rule
 
 ```yaml
 name: evening-light
 triggers:
-    - schedule: "0 0 19 * * *"
+    - schedule: "0 0 19 * * * *"
       while:
           - property: homie/living-room/motion-sensor/state
             condition:
@@ -51,7 +51,7 @@ The following trigger types are supported:
 - `Property changed`: a property value changed (this is available only for retained properties)
 - `On set trigger`: for a virtual device property (when a message to ../set is published for a virtual property)
 - `MQTT trigger`: when a value is published on any generic mqtt topic
-- `Cron trigger`": define time intervals when a rule should be triggered
+- `Cron trigger`: define time intervals when a rule should be triggered
 - `Timer trigger`: a defined timer fires
 - `Solar event trigger`: specify a solar event e.g. sunset, when a rule should be triggered
 
@@ -79,7 +79,7 @@ triggers:
           Enum: "press"
 ```
 
-Triggeres when the living room light switch button is pressed.
+Triggers when the living room light switch button is pressed.
 
 ### 2. Property changed
 
@@ -92,10 +92,10 @@ Available config attributes:
 | -------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `properties`   | list of property references                    | defines all the properties for this trigger                                                                    |
 | `queries`      | list of `query` definitions                    | defines queries which will match all properties for this trigger                                               |
-| `changed`      | `changed` defintion (contains `from` and `to`) | defines the change condition (`from` and `to`) for the trigger to fire                                         |
+| `changed`      | `changed` definition (contains `from` and `to`) | defines the change condition (`from` and `to`) for the trigger to fire                                         |
 | `changed.from` | a `value-condition` of type `homie-value`      | defines the value condition that needs to match the property's previous value in order for the rule to trigger |
 | `changed.to`   | a `value-condition` of type `homie-value`      | defines the value condition that needs to match the property's current value in order for the rule to trigger  |
-| `while`        | list of `while-conditions`                     | defines additional conditions that need to be true while the trigger is evaluated in order for it to triggger  |
+| `while`        | list of `while-conditions`                     | defines additional conditions that need to be true while the trigger is evaluated in order for it to trigger   |
 
 Both `from` and `to` are optional.
 |from|to|explanation|
@@ -152,7 +152,7 @@ Available config attributes:
 | `properties` | list of property references         | defines all the properties for this trigger                                                                                                                                                                                                                                                                                                                  |
 | `queries`   | list of `query` definitions          | defines queries which will match all properties for this trigger                                                                                                                                                                                                                                                                                             |
 | `set_value` | a `value-condition` of type `string` | defines the value condition that needs to match the property value in order for the rule to trigger. This will be the raw string value published for the `../set` topic. Beware that you will need to process and validate the input value by yourself in order to adhere to homie convention specs (there are functions in the lua runtime to handle this). |
-| `while`     | list of `while-conditions`           | defines additional conditions that need to be true while the trigger is evaluated in order for it to triggger                                                                                                                                                                                                                                                |
+| `while`     | list of `while-conditions`           | defines additional conditions that need to be true while the trigger is evaluated in order for it to trigger                                                                                                                                                                                                                                                 |
 
 #### Example
 
@@ -176,14 +176,14 @@ Available config attributes:
 | `trigger_value`   | a `value-condition` of type `string`           | defines the value condition that needs to match the received value in order for the rule to trigger           |
 | `skip_retained`   | `boolean`                                      | do not trigger if the value was the retained value sent after initial subscription                            |
 | `skip_duplicated` | `boolean`                                      | do not trigger if packet is marked as a duplicate                                                             |
-| `check_qos`       | `boolean`                                      | check the qos of the published packet agains the specified qos for the subscription                           |
-| `while`           | list of `while-conditions`                     | defines additional conditions that need to be true while the trigger is evaluated in order for it to triggger |
+| `check_qos`       | `boolean`                                      | check the QoS of the published packet against the configured subscription QoS                                  |
+| `while`           | list of `while-conditions`                     | defines additional conditions that need to be true while the trigger is evaluated in order for it to trigger  |
 
 #### Example
 
 ```yaml
 triggers:
-    - mqtt: home/garage/door/status
+    - topic: home/garage/door/status
       trigger_value: "open"
 ```
 
@@ -198,9 +198,9 @@ Available config attributes:
 | Attribute  | Type                       | Description                                                                                                   |
 | ---------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `schedule` | cron expression            | a cron expression that defines when the trigger fires.                                                        |
-| `while`    | list of `while-conditions` | defines additional conditions that need to be true while the trigger is evaluated in order for it to triggger |
+| `while`    | list of `while-conditions` | defines additional conditions that need to be true while the trigger is evaluated in order for it to trigger  |
 
-#### Cron expession example:
+#### Cron expression example:
 
 ```
 * * * * * * *
@@ -255,7 +255,7 @@ When Does It Run?
 
 ```yaml
 triggers:
-    - schedule: "0 0 19 * * *"
+    - schedule: "0 0 19 * * * *"
 ```
 
 This triggers every day at 7:00 PM.
@@ -300,7 +300,7 @@ There are 2 different kinds of while conditions:
 
 #### Property while condition
 
-A propery while condition tests against the current value of a (retained) homie property.
+A property while condition tests against the current value of a (retained) homie property.
 
 Fields are:
 | Attribute | Type | Description |
@@ -321,7 +321,7 @@ Fields are:
 
 ## Actions
 
-Actions defines tasks to perform when a rule triggers.
+Actions define tasks to perform when a rule triggers.
 
 ## Action Types
 
@@ -369,7 +369,7 @@ actions:
     - type: run
       script: |-
           print("Starting custom script...")
-          homie:set("ome/security-system/armed", true)
+          homie:set_command("home/security-system/armed", true)
 ```
 
 ### Set Action
@@ -524,7 +524,7 @@ actions:
                 Bool: true
 ```
 
-This rule will map values from a light switch (2001 or 2002) or values published under "some_mqq/topic" ("off" or "on") to toggle a light gorup (group-4) on or off.
+This rule maps values from a light switch (2001 or 2002) or values published under `some_mqtt/topic` (`off` or `on`) to toggle light group `group-4` on or off.
 Mappings are defined only for 2002 and off input value to false (lights off) states. All other input values are mapped to true (lights on) using "catch all" mapping definitions.
 
 ### Toggle Action
@@ -587,15 +587,15 @@ actions:
           end
       timer:
           id: window-timer
-          duration: 600
+          duration: 10m
           triggerbound: true
           cancelcondition:
               Bool: false
 ```
 
-This example triggers for a value change of all properties with `id` "contact" of `type` "boolean" which are blow a node with `id` "contact" for all devices. (This is a query example for all window contact sensors)
-When triggered a timer will be started with a 10 minute duration after which the lua script will be executed. (if the same property changes to HomieValue boolean false within the 10minutes duration the timer will be cancelled and no script will be executed)
-The lua script will print a notification to remind the user to close the window again. (Intention here is of course not to just print out a log message but e.g. send a push notification to the users mobile phone in a real world implementation)
+This example triggers on value changes for properties with `id: state` and datatype `boolean` below nodes with `id: contact` across all devices.
+When triggered, a 10-minute timer is started. If the same property changes to `Bool: false` during that time, the timer is cancelled and the script is not executed.
+The script prints a reminder notification (in a real setup you would usually send a push notification instead of only logging).
 
 ### Timer Action
 

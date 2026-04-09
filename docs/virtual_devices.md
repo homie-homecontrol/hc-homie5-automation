@@ -7,7 +7,7 @@ A **virtual device** is a Homie device definition enhanced with extra options th
 **Extra Options Include:**
 
 - **Predefined Node Types:**  
-  The `from_smarthome` section lets you specify a predefined smart home device type (e.g., `switch`, `dimmer`) that automatically generates the necessary node and property definitions. This means you don't have to define every detail from scratch.
+  The `from_smarthome` section lets you specify a predefined smart home device type (for example `switch`, `level`) that automatically generates the necessary node and property definitions. This means you don't have to define every detail from scratch.
 
 - **Set Value Pass-Through:**  
   With the `pass_through` option enabled on a node or property, any value received on the set command is immediately published as the property value.
@@ -93,7 +93,7 @@ nodes:
 
 # Node Specification
 
-Nodes represent the functional parts of a Homie device. A node might correspond to a switch, dimmer, sensor, or other smart home component. Each node must have a unique `id` and can either be manually defined or automatically generated using `from_smarthome`.
+Nodes represent the functional parts of a Homie device. A node might correspond to a switch, level node, sensor, or other smart home component. Each node must have a unique `id` and can either be manually defined or automatically generated using `from_smarthome`.
 
 ## Node Fields
 
@@ -102,7 +102,7 @@ Nodes represent the functional parts of a Homie device. A node might correspond 
 | **id**             | Yes      | string  | Unique identifier for the node. Must follow the HomieID pattern.                                |
 | **name**           | No       | string  | Human-readable name for the node.                                                               |
 | **type**           | No       | string  | Type descriptor for the node.                                                                   |
-| **from_smarthome** | Yes      | object  | Specifies a predefined smart home device type (`switch`, `dimmer`, etc.) and its configuration. |
+| **from_smarthome** | No       | object  | Specifies a predefined smart home device type (for example `switch`, `level`) and its configuration. |
 | **pass_through**   | No       | boolean | If `true`, immediately publishes the set value as the property value. Default: `false`.         |
 | **property_opts**  | No       | object  | Options for property state retrieval (`read_from_mqtt`, `read_timeout`).                        |
 | **properties**     | No       | array   | List of properties defining the node's capabilities.                                            |
@@ -119,9 +119,9 @@ nodes:
           config:
               settable: true
       pass_through: true
-    - id: dimmer
+    - id: level
       from_smarthome:
-          type: dimmer
+          type: level
       properties:
           - id: brightness
             datatype: integer
@@ -139,8 +139,8 @@ Properties define individual characteristics of a node, such as on/off state, br
 | ----------------- | -------- | ------- | ----------------------------------------------------------------------------------- |
 | **id**            | Yes      | string  | Unique identifier for the property. Must follow the HomieID pattern.                |
 | **name**          | No       | string  | Human-readable name for the property.                                               |
-| **datatype**      | Yes      | string  | Data type of the property (e.g., `integer`, `boolean`, `string`).                   |
-| **format**        | No       | object  | Constraints on the allowed values (e.g., range, enum list, color format).           |
+| **datatype**      | Conditional | string  | Required when a property is defined manually and not inherited from `from_smarthome`. |
+| **format**        | No       | string  | Constraints on allowed values (for example integer range, enum list, color format). |
 | **settable**      | No       | boolean | If `true`, the property value can be changed remotely. Default: `false`.            |
 | **retained**      | No       | boolean | If `true`, the property value is retained in MQTT. Default: `false`.                |
 | **unit**          | No       | string  | Unit of measurement (e.g., `"°C"`, `"lm"`).                                         |
@@ -154,17 +154,14 @@ Properties define individual characteristics of a node, such as on/off state, br
 id: virtual-dimmer
 name: Virtual Dimmer
 nodes:
-    - id: dimmer
+    - id: level
       from_smarthome:
-          type: dimmer
+          type: level
       properties:
           - id: brightness
             name: Brightness Level
             datatype: integer
-            format:
-                IntegerRange:
-                    min: 0
-                    max: 100
+            format: "0:100"
             settable: true
             retained: true
             property_opts:
@@ -198,7 +195,7 @@ The `aggregate_function` determines how multiple values from `members` are combi
 
 | Function    | Description                                                  |
 | ----------- | ------------------------------------------------------------ |
-| `"equal"`   | Uses the first non-null value.                               |
+| `"equal"`   | Returns a value only if all aggregated values are equal.     |
 | `"or"`      | If any value is `true`, the result is `true`.                |
 | `"and"`     | If all values are `true`, the result is `true`.              |
 | `"nor"`     | Opposite of `"or"` (only `true` if all values are `false`).  |
@@ -419,9 +416,9 @@ Each property can define additional behavior related to how values are retrieved
 | Key                | Type    | Default | Description                                                               |
 | ------------------ | ------- | ------- | ------------------------------------------------------------------------- |
 | **read_from_mqtt** | boolean | `false` | If `true`, the property retrieves its initial state from MQTT on startup. |
-| **read_timeout**   | string  | `none`  | Defines how long the device waits for an MQTT state before starting.      |
+| **read_timeout**   | string  | `3s` (effective fallback) | Defines how long the device waits for an MQTT state before starting.      |
 
-When `read_from_mqtt` is enabled, the device attempts to read the last known retained value of the property from MQTT when it starts. This ensures state persistence across restarts.
+When `read_from_mqtt` is enabled, the device attempts to read the last known retained value of the property from MQTT when it starts. If `read_timeout` is not set, an internal fallback timeout of `3s` is used.
 Please note that the device stays in init state until the value is read from mqtt or until the timeout.
 
 ### Example: Restoring Switch State on Startup
@@ -451,7 +448,7 @@ When using **compound_spec**, the `aggregation_debounce` option ensures that rap
 
 | Key                      | Type   | Default | Description                                                                                 |
 | ------------------------ | ------ | ------- | ------------------------------------------------------------------------------------------- |
-| **aggregation_debounce** | string | `none`  | Ensures that a value is only updated after it remains unchanged for the specified duration. |
+| **aggregation_debounce** | string | `200ms` (effective fallback) | Ensures that a value is only updated after it remains unchanged for the specified duration. |
 
 ### How It Works
 
@@ -466,7 +463,7 @@ nodes:
     - id: dimmer
       name: Dimmer Group
       from_smarthome:
-          type: dimmer
+          type: level
       properties:
           - id: brightness
             datatype: integer
@@ -547,7 +544,7 @@ These options help fine-tune how virtual devices behave and interact with MQTT m
 
 # Smart Home Integration
 
-Virtual devices support **predefined node types** from smart home integrations, making it easier to define devices without manually specifying all nodes and properties. By using `from_smarthome`, you can generate nodes and properties automatically based on common device types such as switches, dimmers, thermostats, and sensors.
+Virtual devices support **predefined node types** from smart home integrations, making it easier to define devices without manually specifying all nodes and properties. By using `from_smarthome`, you can generate nodes and properties automatically.
 
 ## Using `from_smarthome`
 
@@ -557,7 +554,7 @@ Instead of defining every node and property manually, you can specify a smart ho
 
 | Key        | Required | Type   | Description                                                                     |
 | ---------- | -------- | ------ | ------------------------------------------------------------------------------- |
-| **type**   | Yes      | string | The predefined smart home device type (e.g., `switch`, `dimmer`, `thermostat`). |
+| **type**   | Yes      | string | The predefined smart home device type (for example `switch`, `level`, `thermostat`). |
 | **config** | No       | object | Configuration options specific to the chosen smart home type.                   |
 
 The exact structure of each smart home node type, including its predefined properties and supported configuration options, can be found in the repository:  
@@ -610,22 +607,16 @@ nodes:
 
 ## Supported Smart Home Device Types
 
-The following device types can be used with `from_smarthome`:
+Current implementation supports the following values for `from_smarthome.type`:
 
-| Type         | Description                                                              |
-| ------------ | ------------------------------------------------------------------------ |
-| `switch`     | A simple on/off switch.                                                  |
-| `dimmer`     | A dimmable light that supports brightness control.                       |
-| `colorlight` | A light that supports color control (RGB, HSV, or color temperature).    |
-| `thermostat` | A heating or cooling device with temperature control and optional modes. |
-| `motion`     | A motion sensor that detects movement.                                   |
-| `contact`    | A sensor that detects whether a door or window is open or closed.        |
-| `shutter`    | A motorized shutter or blind that can be opened, closed, and stopped.    |
-| `weather`    | A weather sensor that reports temperature, humidity, and pressure.       |
-| `button`     | A button device that supports different press actions.                   |
-| `lightscene` | A predefined lighting scene that can be activated.                       |
+`air-quality`, `alarm`, `battery`, `button`, `camera`, `climate`, `color`, `co`, `contact`, `daylight`, `garage-door`, `illuminance`, `level`, `link`, `lock`, `media-info`, `mediaplayer`, `motion`, `orientation`, `powermeter`, `scene`, `shutter`, `smoke`, `switch`, `text`, `thermostat`, `tilt`, `timer`, `valve`, `vibration`, `volume`, `watersensor`.
 
-Each type may support additional configuration options in the `config` field.
+For the exact capabilities, property layouts, and type-specific config options, see:
+`hc-homie5-smarthome` - https://github.com/homie-homecontrol/hc-homie5-smarthome
+
+Notes:
+
+- Depending on the selected type, `config` can be omitted or provided.
 
 ## Example: Simple Switch
 
@@ -651,7 +642,7 @@ nodes:
 
 ## Example: Overriding a Property from `from_smarthome`
 
-By default, a `dimmer` device includes a `brightness` property. However, you can override it to define custom behavior.
+By default, a `level` node includes a `brightness` property. However, you can override it to define custom behavior.
 
 ```yaml
 id: floor-lamp
@@ -659,14 +650,11 @@ name: Floor Lamp
 nodes:
     - id: light
       from_smarthome:
-          type: dimmer
+          type: level
       properties:
           - id: brightness
             datatype: integer
-            format:
-                IntegerRange:
-                    min: 0
-                    max: 100
+            format: "0:100"
             settable: true
             retained: true
             property_opts:
@@ -692,7 +680,7 @@ name: Kitchen Lights
 nodes:
     - id: dimmer
       from_smarthome:
-          type: dimmer
+          type: level
       properties:
           - id: brightness
             datatype: integer
@@ -707,6 +695,6 @@ nodes:
 
 **Explanation:**
 
-- This defines a **virtual dimmer** that represents multiple real light dimmers.
+- This defines a **virtual level node** that represents multiple real light brightness sources.
 - The **brightness** property aggregates values from three light sources.
 - The **average brightness** is calculated with a **200ms debounce** to avoid unnecessary updates.
