@@ -24,7 +24,7 @@ actions:
 ---
 name: test-device-test-hello
 triggers:
-  - subjects:
+  - properties:
       - virtual-test-device-hello/switch/action
       - device_id: device-1
         node_id: node-2
@@ -46,7 +46,7 @@ actions:
 ---
 name: test-device-test-hello-changed
 triggers:
-  - subjects:
+  - properties:
       - virtual-test-device-hello/switch/state
     trigger_value:
       Duration: PT50S
@@ -112,7 +112,7 @@ actions:
 ---
 name: rule1b
 triggers:
-  - subjects:
+  - properties:
       - dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
     trigger_value:
       operator: matchAlways
@@ -141,7 +141,7 @@ actions:
 ---
 name: rule2b
 triggers:
-  - subjects:
+  - properties:
       - homie5-jupiter/dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
     trigger_value:
       operator: "="
@@ -179,7 +179,7 @@ actions:
 ---
 name: rule9
 triggers:
-  - subjects:
+  - properties:
       - homie5-jupiter/group-5/switch/state
     changed:
       from:
@@ -200,7 +200,7 @@ actions:
 ---
 name: test-device-toggle
 triggers:
-  - subjects:
+  - properties:
       - virtual-test-device/switch/action
     set_value: "toggle"
 actions:
