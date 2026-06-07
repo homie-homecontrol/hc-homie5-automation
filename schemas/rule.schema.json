@@ -215,13 +215,24 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "target", "value"],
+          "required": ["type", "value"],
+          "oneOf": [
+            {
+              "required": ["target"]
+            },
+            {
+              "required": ["targets"]
+            }
+          ],
           "properties": {
             "type": {
               "const": "set"
             },
             "target": {
-              "$ref": "#/definitions/PropertyRef"
+              "$ref": "#/definitions/ActionTargets"
+            },
+            "targets": {
+              "$ref": "#/definitions/ActionTargets"
             },
             "value": {
               "$ref": "#/definitions/HomieValue"
@@ -234,13 +245,24 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "target", "mapping"],
+          "required": ["type", "mapping"],
+          "oneOf": [
+            {
+              "required": ["target"]
+            },
+            {
+              "required": ["targets"]
+            }
+          ],
           "properties": {
             "type": {
               "const": "map_set"
             },
             "target": {
-              "$ref": "#/definitions/PropertyRef"
+              "$ref": "#/definitions/ActionTargets"
+            },
+            "targets": {
+              "$ref": "#/definitions/ActionTargets"
             },
             "mapping": {
               "$ref": "#/definitions/ValueMappingListMapSetFromToHomieValue"
@@ -253,13 +275,24 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "target"],
+          "required": ["type"],
+          "oneOf": [
+            {
+              "required": ["target"]
+            },
+            {
+              "required": ["targets"]
+            }
+          ],
           "properties": {
             "type": {
               "const": "toggle"
             },
             "target": {
-              "$ref": "#/definitions/PropertyRef"
+              "$ref": "#/definitions/ActionTargets"
+            },
+            "targets": {
+              "$ref": "#/definitions/ActionTargets"
             }
           }
         },
@@ -515,6 +548,19 @@
             }
           },
           "additionalProperties": false
+        }
+      ]
+    },
+    "ActionTargets": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/PropertyRef"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyRef"
+          }
         }
       ]
     },
