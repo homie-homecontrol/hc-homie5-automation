@@ -330,9 +330,9 @@ The following actions types are supported:
 
 | **Type**             | **Key**        | **Description**                                                               |
 | -------------------- | -------------- | ----------------------------------------------------------------------------- |
-| **Set Property**     | `set`          | Set a property to a certain value.                                            |
-| **Map Set Property** | `map_set`      | Set a property to a value mapped from the triggering value                    |
-| **Toggle Property**  | `toggle`       | Toggle a boolean property value.                                              |
+| **Set Property**     | `set`          | Set one or more properties to a certain value.                                |
+| **Map Set Property** | `map_set`      | Set one or more properties to a value mapped from the triggering value        |
+| **Toggle Property**  | `toggle`       | Toggle one or more boolean property values.                                   |
 | **Run Script**       | `run`          | Execute a Lua script.                                                         |
 | **Send MQTT**        | `mqtt`         | Publish a message to an MQTT topic.                                           |
 | **Start Timer**      | `timer`        | create a timer with a specified id, duration and optional repetition interval |
@@ -356,10 +356,9 @@ actions:
 actions:
     - type: mqtt
       topic: home/alerts/security
-      value:
-          String: "Intruder detected!"
+      value: "Intruder detected!"
       qos: AtLeastOnce
-      retained: true
+      retain: true
 ```
 
 #### Run Script
@@ -374,18 +373,25 @@ actions:
 
 ### Set Action
 
-The Set action sets a specific value for a target property.
+The Set action sets a specific value for one or more target properties.
+
+For single-target actions, use `target` with one property reference. For grouped fan-out actions, use `targets` with a list of property references. Both field names deserialize to the same internal `ActionTargets` type, but using `target` for one property and `targets` for multiple properties keeps rule YAML clear.
+
+Multi-target `set` actions execute sequentially in the configured target order. If one target fails, the failure is logged with the target property and the remaining targets are still attempted. A timer on a multi-target `set` delays the whole grouped action, not each target independently.
 
 Available fields are:
 
-| Attribute | Type              | Description                                                                                   |
-| --------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| `type`    | "set"             | defines the action type                                                                       |
-| `target`  | property ref      | the property to set the value for (see chapter Property Reference in 'General Concepts')      |
-| `value`   | `HomieValue`      | The value to set as HomieValue(e.g., `{ Bool: true }`, `{ Integer: 123 }`, etc.)              |
-| `timer`   | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details |
+| Attribute | Type                            | Description                                                                                   |
+| --------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `type`    | "set"                           | defines the action type                                                                       |
+| `target`  | property ref                    | the property to set the value for (see chapter Property Reference in 'General Concepts')      |
+| `targets` | list of property refs           | the properties to set the value for                                                           |
+| `value`   | `HomieValue`                    | The value to set as HomieValue(e.g., `{ Bool: true }`, `{ Integer: 123 }`, etc.)              |
+| `timer`   | `TimerDefinition`               | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details |
 
-#### Example:
+Use either `target` or `targets`, not both.
+
+#### Single-target example:
 
 ```yml
 actions:
@@ -395,23 +401,41 @@ actions:
           Bool: true
 ```
 
+#### Multi-target example:
+
+```yml
+actions:
+    - type: set
+      targets:
+          - device-a/switch/state
+          - device-b/switch/state
+          - device-c/switch/state
+      value:
+          Bool: true
+```
+
 ### MapSet Action
 
 Maps the triggering property's value using a predefined mapping.
-The mapped value is then set for the target property.
+The mapped value is then set for one or more target properties.
+
+For multi-target `map_set`, the trigger value is mapped once through `mapping`. If a mapping is found, the resulting value is sent to every target sequentially in the configured target order. If one target fails, the failure is logged with the target property and the remaining targets are still attempted. A timer on a multi-target `map_set` delays the whole grouped action, not each target independently.
 
 Available fields are:
 
-| Attribute | Type              | Description                                                                                              |
-| --------- | ----------------- | -------------------------------------------------------------------------------------------------------- |
-| `type`    | "map_set"         | defines the action type                                                                                  |
-| `target`  | property ref      | the property to set the value for (see chapter Property Reference in 'General Concepts')                 |
-| `mapping` | `HomieValue`      | A list of mappings. There are 3 different `from` types to map from: `HomieValue`, `String`, `SolarPhase` |
-| `timer`   | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details            |
+| Attribute | Type                            | Description                                                                                              |
+| --------- | ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `type`    | "map_set"                       | defines the action type                                                                                  |
+| `target`  | property ref                    | the property to set the value for (see chapter Property Reference in 'General Concepts')                 |
+| `targets` | list of property refs           | the properties to set the mapped value for                                                               |
+| `mapping` | list of value mappings          | A list of mappings. There are 3 different `from` types to map from: `HomieValue`, `String`, `SolarPhase` |
+| `timer`   | `TimerDefinition`               | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details            |
+
+Use either `target` or `targets`, not both.
 
 #### Mapping field description:
 
-The mapping field contains a list of mappings which are used to map the triggering value of the rule to a new value used to be set for the target property. The mapping in the list that first matches in its `from` condition will be used to determine the output value.
+The mapping field contains a list of mappings which are used to map the triggering value of the rule to a new value used to be set for the target property or properties. The mapping in the list that first matches in its `from` condition will be used to determine the output value.
 A mapping is simply a combination of a (optional) `from` value condition and a `to` output value. If `from` is omitted the mapping is a so called "catch all" mapping, this is useful to map all not further defined input values to a defined output.
 
 ##### Example
@@ -506,7 +530,9 @@ triggers:
           operator: matchAlways
 actions:
     - type: map_set
-      target: group-4/switch/state
+      targets:
+          - group-4/switch/state
+          - group-5/switch/state
       mapping:
           # Map from button property (HomieValue) to Boolean
           - from:
@@ -524,22 +550,36 @@ actions:
                 Bool: true
 ```
 
-This rule maps values from a light switch (2001 or 2002) or values published under `some_mqtt/topic` (`off` or `on`) to toggle light group `group-4` on or off.
+This rule maps values from a light switch (2001 or 2002) or values published under `some_mqtt/topic` (`off` or `on`) to toggle light groups `group-4` and `group-5` on or off.
 Mappings are defined only for 2002 and off input value to false (lights off) states. All other input values are mapped to true (lights on) using "catch all" mapping definitions.
 
 ### Toggle Action
 
-The Toggle action toggles the state of a target property (true -> false / false -> true)
+The Toggle action toggles the state of one or more target properties (true -> false / false -> true).
+
+For multi-target `toggle`, each target is toggled based on its own current boolean value in the device store. Targets are processed sequentially in the configured target order. If the current value for a target is missing or not a boolean, no command is sent for that target.
 
 - **Type**: `toggle`
 - **Target**: The `boolean` property to toggle (e.g., `device_id/node_id/property_id`)
+- **Targets**: A list of `boolean` properties to toggle
 
-Example:
+Single-target example:
 
 ```yml
 actions:
     - type: toggle
       target: device_id/node_id/property_id
+```
+
+Multi-target example:
+
+```yml
+actions:
+    - type: toggle
+      targets:
+          - device-a/switch/state
+          - device-b/switch/state
+          - device-c/switch/state
 ```
 
 ### Run Action
