@@ -13,18 +13,23 @@ use std::borrow::Cow;
 pub enum RuleAction {
     #[serde(rename = "set")] // Explicitly rename the "Set" variant to "set"
     Set {
-        target: PropertyRef,
+        #[serde(alias = "targets")]
+        target: ActionTargets,
         value: HomieValue,
         timer: Option<TimerDef>,
     },
     #[serde(rename = "map_set")] // Explicitly rename the "Set" variant to "set"
     MapSet {
-        target: PropertyRef,
+        #[serde(alias = "targets")]
+        target: ActionTargets,
         mapping: ValueMappingList<MapSetFrom<'static>, HomieValue>,
         timer: Option<TimerDef>,
     },
     #[serde(rename = "toggle")] // Explicitly rename the "Set" variant to "set"
-    Toggle { target: PropertyRef },
+    Toggle {
+        #[serde(alias = "targets")]
+        target: ActionTargets,
+    },
     #[serde(rename = "run")] // Explicitly rename the "Set" variant to "set"
     Run { script: String, timer: Option<TimerDef> },
     #[serde(rename = "timer")] // Explicitly rename the "Set" variant to "set"
@@ -40,6 +45,22 @@ pub enum RuleAction {
         #[serde(default)]
         retain: bool,
     },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ActionTargets {
+    Single(PropertyRef),
+    Multiple(Vec<PropertyRef>),
+}
+
+impl ActionTargets {
+    pub fn iter(&self) -> impl Iterator<Item = &PropertyRef> {
+        match self {
+            ActionTargets::Single(target) => std::slice::from_ref(target).iter(),
+            ActionTargets::Multiple(targets) => targets.iter(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, PartialOrd)]
@@ -62,5 +83,110 @@ impl ValueMatcher for MapSetFrom<'_> {
             MapSetFrom::String(cow) => cow.as_match_str(),
             MapSetFrom::SolarPhase(cow) => cow.as_match_str(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target_count(yaml: &str) -> usize {
+        let action: RuleAction = serde_yaml_ng::from_str(yaml).expect("action should deserialize");
+
+        match action {
+            RuleAction::Set { target, .. } | RuleAction::MapSet { target, .. } | RuleAction::Toggle { target } => {
+                target.iter().count()
+            }
+            _ => panic!("expected target action"),
+        }
+    }
+
+    #[test]
+    fn set_accepts_target_and_targets_fields() {
+        assert_eq!(
+            target_count(
+                r#"
+type: set
+target: dev-a/switch/state
+value:
+  Bool: true
+"#,
+            ),
+            1
+        );
+        assert_eq!(
+            target_count(
+                r#"
+type: set
+targets:
+  - dev-a/switch/state
+  - dev-b/switch/state
+value:
+  Bool: true
+"#,
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn map_set_accepts_target_and_targets_fields() {
+        let mapping = r#"
+mapping:
+  - from:
+      HomieValue:
+        Bool: true
+    to:
+      Bool: false
+  - to:
+      Bool: true
+"#;
+
+        assert_eq!(
+            target_count(&format!(
+                r#"
+type: map_set
+target: dev-a/switch/state
+{mapping}
+"#
+            )),
+            1
+        );
+        assert_eq!(
+            target_count(&format!(
+                r#"
+type: map_set
+targets:
+  - dev-a/switch/state
+  - dev-b/switch/state
+{mapping}
+"#
+            )),
+            2
+        );
+    }
+
+    #[test]
+    fn toggle_accepts_target_and_targets_fields() {
+        assert_eq!(
+            target_count(
+                r#"
+type: toggle
+target: dev-a/switch/state
+"#,
+            ),
+            1
+        );
+        assert_eq!(
+            target_count(
+                r#"
+type: toggle
+targets:
+  - dev-a/switch/state
+  - dev-b/switch/state
+"#,
+            ),
+            2
+        );
     }
 }

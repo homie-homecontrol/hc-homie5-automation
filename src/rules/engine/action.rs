@@ -8,11 +8,11 @@ use crate::{
     rules::{Rule, RuleTriggerEvent},
     timer_manager::TimerManager,
 };
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{eyre, Result};
 use config_watcher::ConfigItemHash;
 use hc_homie5::client::HomieMQTTClient;
 use hc_homie5::value::MappingResult;
-use homie5::{HomieValue, ToTopic};
+use homie5::{HomieValue, PropertyRef, ToTopic};
 use mlua::ExternalResult;
 use mlua::Lua;
 use std::borrow::Cow;
@@ -53,48 +53,48 @@ pub async fn execute_rule_action<'a>(
     ignore_timer: bool,
 ) -> Result<()> {
     match action {
-        crate::rules::RuleAction::Set { target, value, timer } => {
+        RuleAction::Set { target, value, timer } => {
             if ignore_timer || timer.is_none() {
-                ctx.dm.set_command(target, value).await?;
+                set_targets(ctx, target, value).await?;
             } else if let Some(timer) = timer {
                 // Handle the timer if it exists
                 handle_timer(rule_hash, rule_name, Some(action.clone()), trigger_event, timer, ctx.timers).await?;
             }
         }
-        crate::rules::RuleAction::MapSet { target, mapping, timer } => {
+        RuleAction::MapSet { target, mapping, timer } => {
             if ignore_timer || timer.is_none() {
                 match trigger_event {
                     RuleTriggerEvent::PropertyChanged { to, .. } => {
                         if let MappingResult::Mapped(value) = mapping.map_to(&MapSetFrom::HomieValue(Cow::Borrowed(to)))
                         {
-                            ctx.dm.set_command(target, value).await?;
+                            set_targets(ctx, target, value).await?;
                         }
                     }
                     RuleTriggerEvent::PropertyTriggered { value, .. } => {
                         if let MappingResult::Mapped(value) =
                             mapping.map_to(&MapSetFrom::HomieValue(Cow::Borrowed(value)))
                         {
-                            ctx.dm.set_command(target, value).await?;
+                            set_targets(ctx, target, value).await?;
                         }
                     }
                     RuleTriggerEvent::OnSet { value, .. } => {
                         if let MappingResult::Mapped(value) = mapping.map_to(&MapSetFrom::String(Cow::Borrowed(value)))
                         {
-                            ctx.dm.set_command(target, value).await?;
+                            set_targets(ctx, target, value).await?;
                         }
                     }
                     RuleTriggerEvent::Timer(cow) => {
                         if let MappingResult::Mapped(value) =
                             mapping.map_to(&MapSetFrom::String(Cow::Borrowed(&cow.id)))
                         {
-                            ctx.dm.set_command(target, value).await?;
+                            set_targets(ctx, target, value).await?;
                         }
                     }
                     RuleTriggerEvent::Mqtt(cow) => {
                         if let MappingResult::Mapped(value) =
                             mapping.map_to(&MapSetFrom::String(Cow::Borrowed(&cow.payload)))
                         {
-                            ctx.dm.set_command(target, value).await?;
+                            set_targets(ctx, target, value).await?;
                         }
                     }
                     RuleTriggerEvent::Solar(cow) => match cow {
@@ -104,7 +104,7 @@ pub async fn execute_rule_action<'a>(
                             if let MappingResult::Mapped(value) =
                                 mapping.map_to(&MapSetFrom::SolarPhase(Cow::Borrowed(solar_phase)))
                             {
-                                ctx.dm.set_command(target, value).await?;
+                                set_targets(ctx, target, value).await?;
                             }
                         }
                         Cow::Owned(SolarEvent::At(solar_phase))
@@ -113,7 +113,7 @@ pub async fn execute_rule_action<'a>(
                             if let MappingResult::Mapped(value) =
                                 mapping.map_to(&MapSetFrom::SolarPhase(Cow::Borrowed(solar_phase)))
                             {
-                                ctx.dm.set_command(target, value).await?;
+                                set_targets(ctx, target, value).await?;
                             }
                         }
                     },
@@ -123,17 +123,28 @@ pub async fn execute_rule_action<'a>(
                 handle_timer(rule_hash, rule_name, Some(action.clone()), trigger_event, timer, ctx.timers).await?;
             }
         }
-        crate::rules::RuleAction::Toggle { target } => {
-            let devices = ctx.dm.read().await;
-            let value = devices.get_device(target.device_ref()).and_then(|device| {
-                device
-                    .prop_values
-                    .get_value_entry(target.prop_pointer())
-                    .and_then(|prop_value_entry| prop_value_entry.value.as_ref())
-            });
-            if let Some(HomieValue::Bool(value)) = value {
-                ctx.dm.set_command(target, &HomieValue::Bool(!value)).await?;
-            }
+        RuleAction::Toggle { target } => {
+            let commands = {
+                let devices = ctx.dm.read().await;
+                target
+                    .iter()
+                    .filter_map(|target| {
+                        let value = devices.get_device(target.device_ref()).and_then(|device| {
+                            device
+                                .prop_values
+                                .get_value_entry(target.prop_pointer())
+                                .and_then(|prop_value_entry| prop_value_entry.value.as_ref())
+                        });
+
+                        match value {
+                            Some(HomieValue::Bool(value)) => Some((target, HomieValue::Bool(!*value))),
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            };
+
+            set_target_commands(ctx, commands).await?;
         }
         RuleAction::Mqtt {
             topic,
@@ -169,6 +180,44 @@ pub async fn execute_rule_action<'a>(
         }
     }
     Ok(())
+}
+
+async fn set_targets(ctx: &RuleContext<'_>, targets: &crate::rules::ActionTargets, value: &HomieValue) -> Result<()> {
+    let mut attempts = 0;
+    let mut failures = 0;
+
+    for target in targets.iter() {
+        attempts += 1;
+        if let Err(err) = ctx.dm.set_command(target, value).await {
+            failures += 1;
+            log::error!("failed to set target {}: {}", target, err);
+        }
+    }
+
+    target_failures_result(failures, attempts)
+}
+
+async fn set_target_commands(ctx: &RuleContext<'_>, commands: Vec<(&PropertyRef, HomieValue)>) -> Result<()> {
+    let mut attempts = 0;
+    let mut failures = 0;
+
+    for (target, value) in commands {
+        attempts += 1;
+        if let Err(err) = ctx.dm.set_command(target, &value).await {
+            failures += 1;
+            log::error!("failed to set target {}: {}", target, err);
+        }
+    }
+
+    target_failures_result(failures, attempts)
+}
+
+fn target_failures_result(failures: usize, attempts: usize) -> Result<()> {
+    if failures == 0 {
+        Ok(())
+    } else {
+        Err(eyre!("failed to set {} of {} target(s)", failures, attempts))
+    }
 }
 
 async fn handle_timer(
