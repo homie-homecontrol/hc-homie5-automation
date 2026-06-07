@@ -183,7 +183,9 @@ triggers:
       operator: matchAlways
 actions:
   - type: map_set
-    target: homie5-jupiter/group-4/switch/state
+    targets:
+      - homie5-jupiter/group-4/switch/state
+      - homie5-jupiter/group-2/switch/state
     mapping:
       # Map from button property (HomieValue) to Boolean
       - from:
