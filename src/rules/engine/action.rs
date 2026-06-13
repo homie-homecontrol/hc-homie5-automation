@@ -240,12 +240,6 @@ async fn handle_timer(
     let mut cancelled = false;
 
     if let Some(cancelcondition) = &timer_def.cancelcondition {
-        // log::debug!(
-        //     "{} -- Checking cancel condidtion {:?} against value: {:?}",
-        //     rule_name,
-        //     cancelcondition,
-        //     trigger_event.value()
-        // );
         if let Some(value) = trigger_event.value() {
             if cancelcondition.evaluate(value) {
                 timers.cancel_timer(&timer_id);

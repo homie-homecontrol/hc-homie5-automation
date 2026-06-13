@@ -83,7 +83,6 @@ pub async fn initialize_app(
         settings.app.location.elevation,
         10,
     );
-    // let (solar_event_handler, solar_events, solar_events_receiver) = run_solar_event_task(48.166, 11.5683, 0.0, 10);
 
     // Setup configuration watchers
     // =====================================================

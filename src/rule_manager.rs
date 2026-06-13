@@ -90,7 +90,6 @@ impl RuleManager {
             cron.remove_cron_schedule_for_rule(hash);
             solar_events.remove_triggers_by_rule(hash).await?;
             unsubscribe_mqtt_trigger(&rule, mqtt_client).await?;
-            // queries_remove_init_materialized(&mut rule, &*dm.read().await);
             Ok(Some(rule))
         } else {
             Ok(None)

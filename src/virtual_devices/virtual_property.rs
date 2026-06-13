@@ -441,18 +441,6 @@ impl VirtualProperty {
             timeout,
         )
         .await;
-        // let handle = tokio::task::spawn(async move {
-        //     log::debug!(
-        //         "{} - schedule cancel task for value read from mqtt: {:?}",
-        //         prop_ref_task.to_topic().build(),
-        //         timeout
-        //     );
-        //     tokio::time::sleep(timeout).await;
-        //     app_event_sender
-        //         .send(AppEvent::CancelPropertyValueReadFromMqtt(prop_ref_task))
-        //         .await?;
-        //     Ok::<(), eyre::Error>(())
-        // });
         Ok(ds)
     }
 

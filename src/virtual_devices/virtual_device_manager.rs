@@ -313,7 +313,10 @@ impl VirtualDeviceManager {
         for (_, device) in devices.iter_mut() {
             device.disconnect_device().await?;
         }
-        devices.clear(); // not sure about this
+        // Only called during full application shutdown; the process exits after
+        // publishing disconnected states, so no rediscovery/republish path needs
+        // these in-memory devices afterwards.
+        devices.clear();
         Ok(())
     }
     pub async fn disconnect_client(&self) -> Result<()> {
