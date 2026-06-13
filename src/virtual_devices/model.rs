@@ -368,10 +368,14 @@ pub struct VirtualPropertyOptions {
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CompoundSpec {
+    /// May be empty in a group-device overlay (the generated members are
+    /// kept); a non-group compound without members is simply inert.
+    #[serde(default)]
     pub members: Vec<MemberSpec>,
     pub mapping: Option<ValueMappingIO<HomieValue, HomieValue>>,
-    #[serde(default)]
-    pub aggregate_function: AggregateFunctionType,
+    /// `None` means "not specified": defaults to `equal` at evaluation time
+    /// and keeps the generated aggregate when used as a group-device overlay.
+    pub aggregate_function: Option<AggregateFunctionType>,
     #[serde(deserialize_with = "deserialize_optional_duration", default)]
     pub aggregation_debounce: Option<Duration>,
 }

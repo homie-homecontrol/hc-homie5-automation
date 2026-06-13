@@ -12,14 +12,22 @@
 //!    enum/color values, settable OR, first-wins for name/unit/retained.
 //! 4. Aggregate functions default by merged datatype:
 //!    boolean -> `or`, integer/float -> `avg`, everything else -> `equal`.
+//! 5. The spec's own `nodes` act as an overlay on the generated structure:
+//!    description fields patch the generated ones, `compound_spec` entries
+//!    override aggregate/debounce/mapping (a non-empty `members` list replaces
+//!    the generated members), `exclude: true` removes a generated node or
+//!    property, and unknown IDs are added as-is (incl. `from_smarthome`).
 //!
 //! The result is an expanded [`VirtualDeviceSpec`] (with `group` consumed)
-//! that feeds the unchanged `VirtualDevice::new()` construction path.
+//! that feeds the unchanged `VirtualDevice::new()` construction path, plus a
+//! stable hash over the expanded structure used as a rebuild gate.
 //!
 //! Materialization is a pure, synchronous function over [`DeviceStore`] data
 //! and therefore fully unit-testable without MQTT.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 
 use hc_homie5::store::DeviceStore;
 use homie5::device_description::{FloatRange, HomiePropertyDescription, HomiePropertyFormat, IntegerRange};
@@ -33,6 +41,10 @@ pub struct MaterializedGroup {
     /// Expanded spec ready for `VirtualDevice::new` (nodes fully populated,
     /// `group` field consumed).
     pub spec: VirtualDeviceSpec,
+    /// Stable hash over the expanded structure; used to detect whether a
+    /// discovery change actually altered the result (rebuild gate).
+    /// Only comparable within the running process.
+    pub structure_hash: u64,
 }
 
 /// Materialize a group device spec into an expanded [`VirtualDeviceSpec`].
@@ -41,16 +53,19 @@ pub struct MaterializedGroup {
 /// yet) are skipped -- the device is published partially and grows when the
 /// members get discovered (a rebuild is triggered by the manager).
 ///
-/// A spec without a `group` is passed through unchanged.
+/// A spec without a `group` is passed through unchanged (`exclude` flags are
+/// meaningless there and ignored with a warning).
 pub fn materialize(spec: &VirtualDeviceSpec, devices: &DeviceStore, domain: &HomieDomain) -> MaterializedGroup {
     let Some(group) = &spec.group else {
-        return MaterializedGroup { spec: spec.clone() };
+        warn_about_ignored_excludes(spec);
+        let spec = spec.clone();
+        let structure_hash = structure_hash(&spec);
+        return MaterializedGroup { spec, structure_hash };
     };
 
     let generated = generate_nodes(&spec.id, group, devices, domain);
+    let nodes = apply_overlays(&spec.id, generated, &spec.nodes);
 
-    // TODO(WP-2.2): apply `spec.nodes` overlays (patch/extend/exclude) on top
-    // of the generated nodes and compute the structure hash.
     let spec = VirtualDeviceSpec {
         id: spec.id.clone(),
         name: spec.name.clone(),
@@ -59,10 +74,35 @@ pub fn materialize(spec: &VirtualDeviceSpec, devices: &DeviceStore, domain: &Hom
         parent: spec.parent.clone(),
         extensions: spec.extensions.clone(),
         group: None,
-        nodes: generated,
+        nodes,
     };
+    let structure_hash = structure_hash(&spec);
 
-    MaterializedGroup { spec }
+    MaterializedGroup { spec, structure_hash }
+}
+
+/// `exclude` flags only make sense as overlays on a group device. On plain
+/// devices they are ignored -- tell the user instead of failing.
+fn warn_about_ignored_excludes(spec: &VirtualDeviceSpec) {
+    for node in &spec.nodes {
+        if node.exclude.is_some() {
+            log::warn!(
+                "[vdevice:{}] 'exclude' on node '{}' is ignored: the device is not a group device",
+                spec.id,
+                node.id
+            );
+        }
+        for prop in &node.properties {
+            if prop.exclude.is_some() {
+                log::warn!(
+                    "[vdevice:{}] 'exclude' on property '{}/{}' is ignored: the device is not a group device",
+                    spec.id,
+                    node.id,
+                    prop.id
+                );
+            }
+        }
+    }
 }
 
 /// A property description of one group member, tagged with its position in
@@ -245,10 +285,203 @@ fn merge_property(
         compound_spec: Some(CompoundSpec {
             members,
             mapping: None,
-            aggregate_function,
+            aggregate_function: Some(aggregate_function),
             aggregation_debounce,
         }),
     }
+}
+
+// ================ overlay application
+
+/// Apply the spec's `nodes` overlays onto the generated nodes.
+///
+/// - An overlay node matching a generated node ID patches it (description
+///   fields, `from_smarthome`, config flags, per-property overlays) or
+///   removes it (`exclude: true`).
+/// - Overlay nodes with unknown IDs are appended as-is (manual nodes like a
+///   `scene` node keep working, incl. `from_smarthome`).
+///
+/// Generated node order is preserved; new overlay nodes follow in overlay
+/// order.
+fn apply_overlays(group_id: &HomieID, generated: Vec<VirtualNodeSpec>, overlays: &[VirtualNodeSpec]) -> Vec<VirtualNodeSpec> {
+    let generated_ids: Vec<HomieID> = generated.iter().map(|n| n.id.clone()).collect();
+
+    let mut nodes: Vec<VirtualNodeSpec> = generated
+        .into_iter()
+        .filter_map(|node| match overlays.iter().find(|o| o.id == node.id) {
+            Some(overlay) if overlay.exclude == Some(true) => {
+                log::debug!("[group:{}] node '{}' removed by overlay exclude", group_id, node.id);
+                None
+            }
+            Some(overlay) => overlay_node(group_id, node, overlay),
+            None => Some(node),
+        })
+        .collect();
+
+    // append overlay nodes that did not match any generated node
+    for overlay in overlays {
+        if generated_ids.contains(&overlay.id) {
+            continue;
+        }
+        if overlay.exclude == Some(true) {
+            log::debug!(
+                "[group:{}] overlay node '{}' has exclude set but nothing was generated for it -- skipping",
+                group_id,
+                overlay.id
+            );
+            continue;
+        }
+        nodes.push(overlay.clone());
+    }
+    nodes
+}
+
+/// Patch one generated node with its overlay. Returns `None` when the node
+/// ends up without properties (and has no `from_smarthome` base that could
+/// still produce some).
+fn overlay_node(group_id: &HomieID, generated: VirtualNodeSpec, overlay: &VirtualNodeSpec) -> Option<VirtualNodeSpec> {
+    let properties = overlay_properties(group_id, &generated.id, generated.properties, &overlay.properties);
+    if properties.is_empty() && overlay.from_smarthome.is_none() {
+        log::debug!(
+            "[group:{}] node '{}' has no remaining properties after overlay -- dropping",
+            group_id,
+            generated.id
+        );
+        return None;
+    }
+    Some(VirtualNodeSpec {
+        id: generated.id,
+        name: overlay.name.clone().or(generated.name),
+        r#type: overlay.r#type.clone().or(generated.r#type),
+        // an overlay `from_smarthome` replaces the (always empty) generated
+        // base; the merged properties are re-applied on top by
+        // VirtualDevice::new()
+        from_smarthome: overlay.from_smarthome.clone().or(generated.from_smarthome),
+        pass_through: overlay.pass_through.or(generated.pass_through),
+        property_opts: overlay.property_opts.clone().or(generated.property_opts),
+        exclude: None,
+        properties,
+    })
+}
+
+/// Patch the generated properties of one node with the overlay's property
+/// entries; overlay properties with unknown IDs are appended as-is.
+fn overlay_properties(
+    group_id: &HomieID,
+    node_id: &HomieID,
+    generated: Vec<VirtualPropertySpec>,
+    overlays: &[VirtualPropertySpec],
+) -> Vec<VirtualPropertySpec> {
+    let generated_ids: Vec<HomieID> = generated.iter().map(|p| p.id.clone()).collect();
+
+    let mut properties: Vec<VirtualPropertySpec> = generated
+        .into_iter()
+        .filter_map(|prop| match overlays.iter().find(|o| o.id == prop.id) {
+            Some(overlay) if overlay.exclude == Some(true) => {
+                log::debug!("[group:{}] property '{}/{}' removed by overlay exclude", group_id, node_id, prop.id);
+                None
+            }
+            Some(overlay) => Some(overlay_property(prop, overlay)),
+            None => Some(prop),
+        })
+        .collect();
+
+    for overlay in overlays {
+        if generated_ids.contains(&overlay.id) {
+            continue;
+        }
+        if overlay.exclude == Some(true) {
+            log::debug!(
+                "[group:{}] overlay property '{}/{}' has exclude set but nothing was generated for it -- skipping",
+                group_id,
+                node_id,
+                overlay.id
+            );
+            continue;
+        }
+        properties.push(overlay.clone());
+    }
+    properties
+}
+
+/// Patch one generated property with its overlay: description fields
+/// (`VirtualPropertyDescription::patch` semantics on the spec level), config
+/// fields, and the compound spec.
+fn overlay_property(generated: VirtualPropertySpec, overlay: &VirtualPropertySpec) -> VirtualPropertySpec {
+    VirtualPropertySpec {
+        id: generated.id,
+        name: overlay.name.clone().or(generated.name),
+        datatype: overlay.datatype.or(generated.datatype),
+        format: overlay.format.clone().or(generated.format),
+        settable: overlay.settable.or(generated.settable),
+        retained: overlay.retained.or(generated.retained),
+        unit: overlay.unit.clone().or(generated.unit),
+        pass_through: overlay.pass_through.or(generated.pass_through),
+        property_opts: overlay.property_opts.clone().or(generated.property_opts),
+        exclude: None,
+        compound_spec: overlay_compound(generated.compound_spec, overlay.compound_spec.as_ref()),
+    }
+}
+
+/// Merge an overlay compound spec into the generated one:
+/// aggregate/debounce/mapping override when present; a non-empty `members`
+/// list **replaces** the generated members.
+fn overlay_compound(generated: Option<CompoundSpec>, overlay: Option<&CompoundSpec>) -> Option<CompoundSpec> {
+    match (generated, overlay) {
+        (generated, None) => generated,
+        (None, Some(overlay)) => Some(overlay.clone()),
+        (Some(generated), Some(overlay)) => Some(CompoundSpec {
+            members: if overlay.members.is_empty() {
+                generated.members
+            } else {
+                overlay.members.clone()
+            },
+            mapping: overlay.mapping.clone().or(generated.mapping),
+            aggregate_function: overlay.aggregate_function.or(generated.aggregate_function),
+            aggregation_debounce: overlay.aggregation_debounce.or(generated.aggregation_debounce),
+        }),
+    }
+}
+
+// ================ structure hash
+
+/// Stable hash over the expanded structure of a materialized spec.
+///
+/// Covers everything that influences the published device description and the
+/// compound wiring (node/property IDs, descriptions, members, aggregates).
+/// Uses [`DefaultHasher`], so values are only comparable within the running
+/// process -- exactly the lifetime of the rebuild gate that consumes them.
+fn structure_hash(spec: &VirtualDeviceSpec) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    spec.id.as_str().hash(&mut hasher);
+    spec.name.hash(&mut hasher);
+    spec.version.hash(&mut hasher);
+    for child in &spec.children {
+        child.as_str().hash(&mut hasher);
+    }
+    spec.parent.as_ref().map(|p| p.as_str()).hash(&mut hasher);
+    spec.extensions.hash(&mut hasher);
+    for node in &spec.nodes {
+        node.id.as_str().hash(&mut hasher);
+        node.name.hash(&mut hasher);
+        node.r#type.hash(&mut hasher);
+        format!("{:?}", node.from_smarthome).hash(&mut hasher);
+        node.pass_through.hash(&mut hasher);
+        format!("{:?}", node.property_opts).hash(&mut hasher);
+        for prop in &node.properties {
+            prop.id.as_str().hash(&mut hasher);
+            prop.name.hash(&mut hasher);
+            format!("{:?}", prop.datatype).hash(&mut hasher);
+            prop.format.hash(&mut hasher);
+            prop.settable.hash(&mut hasher);
+            prop.retained.hash(&mut hasher);
+            prop.unit.hash(&mut hasher);
+            prop.pass_through.hash(&mut hasher);
+            format!("{:?}", prop.property_opts).hash(&mut hasher);
+            format!("{:?}", prop.compound_spec).hash(&mut hasher);
+        }
+    }
+    hasher.finish()
 }
 
 /// Majority vote over the candidate datatypes; ties are broken by the
@@ -367,6 +600,7 @@ fn union_in_order<T: PartialEq + Clone>(mut acc: Vec<T>, other: &[T]) -> Vec<T> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::virtual_devices::SmarthomeSpec;
     use homie5::device_description::{ColorFormat, HomieDeviceDescription, HomieNodeDescription};
     use homie5::HomieDeviceStatus;
     use std::time::Duration;
@@ -545,7 +779,7 @@ group:
         assert_eq!(state.datatype, Some(HomieDataType::Boolean));
         assert_eq!(state.settable, Some(true));
         let compound = state.compound_spec.as_ref().unwrap();
-        assert!(matches!(compound.aggregate_function, AggregateFunctionType::Or));
+        assert!(matches!(compound.aggregate_function, Some(AggregateFunctionType::Or)));
         assert_eq!(compound.aggregation_debounce, Some(Duration::from_millis(150)));
 
         // node name: first member that defines one wins (dev-b)
@@ -559,13 +793,13 @@ group:
         );
         assert_eq!(level.format.as_deref(), Some("0:254"));
         let compound = level.compound_spec.as_ref().unwrap();
-        assert!(matches!(compound.aggregate_function, AggregateFunctionType::Avg));
+        assert!(matches!(compound.aggregate_function, Some(AggregateFunctionType::Avg)));
 
         // color/color: equal aggregate (no debounce), color format union
         let color = get_prop(&result, "color", "color");
         assert_eq!(color.format.as_deref(), Some("rgb,hsv"));
         let compound = color.compound_spec.as_ref().unwrap();
-        assert!(matches!(compound.aggregate_function, AggregateFunctionType::Equal));
+        assert!(matches!(compound.aggregate_function, Some(AggregateFunctionType::Equal)));
         assert_eq!(compound.aggregation_debounce, None);
     }
 
@@ -644,7 +878,7 @@ group:
         // string -> equal aggregate
         assert!(matches!(
             p.compound_spec.as_ref().unwrap().aggregate_function,
-            AggregateFunctionType::Equal
+            Some(AggregateFunctionType::Equal)
         ));
     }
 
@@ -856,15 +1090,298 @@ group:
 id: plain-device
 nodes:
   - id: switch
+    exclude: true
     properties:
       - id: state
         datatype: boolean
+        exclude: true
 "#,
         );
         let result = materialize(&spec, &store, &domain()).spec;
         assert!(result.group.is_none());
+        // exclude flags are meaningless on a non-group device: ignored
+        // (with a warning), nothing is removed
         assert_eq!(result.nodes.len(), 1);
         assert_eq!(result.nodes[0].id, id("switch"));
         assert_eq!(result.nodes[0].properties[0].id, id("state"));
+    }
+
+    // --- WP-2.2: overlays & structure hash ---
+
+    /// Two identical lights for the overlay tests: switch (state bool,
+    /// action enum) + level node. `dev_b_level_max` makes the structural
+    /// merge result tweakable for the hash sensitivity test.
+    fn overlay_store_with(dev_b_level_max: i64) -> DeviceStore {
+        let mut store = DeviceStore::new();
+        for (device, level_max) in [("dev-a", 254), ("dev-b", dev_b_level_max)] {
+            add_device(
+                &mut store,
+                device,
+                vec![
+                    (
+                        "switch",
+                        None,
+                        vec![
+                            ("state", bool_prop(true)),
+                            ("action", prop(HomieDataType::Enum, enum_format(&["press", "hold"]))),
+                        ],
+                    ),
+                    (
+                        "level",
+                        None,
+                        vec![("value", prop(HomieDataType::Integer, int_range(Some(0), Some(level_max), None)))],
+                    ),
+                ],
+            );
+        }
+        store
+    }
+
+    fn overlay_store() -> DeviceStore {
+        overlay_store_with(254)
+    }
+
+    /// The `toggle` case from lights.vdevice.yaml: overlay description
+    /// fields patch the generated ones, everything else stays generated.
+    #[test]
+    fn overlay_patches_generated_descriptions() {
+        let store = overlay_store();
+        let spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+  aggregation_debounce: 150ms
+nodes:
+  - id: switch
+    name: Main Switch
+    properties:
+      - id: action
+        format: toggle
+        retained: false
+"#,
+        );
+        let result = materialize(&spec, &store, &domain()).spec;
+
+        let switch = get_node(&result, "switch");
+        assert_eq!(switch.name.as_deref(), Some("Main Switch"));
+
+        // patched fields
+        let action = get_prop(&result, "switch", "action");
+        assert_eq!(action.format.as_deref(), Some("toggle"));
+        assert_eq!(action.retained, Some(false));
+        // untouched generated fields: datatype, members, aggregate
+        assert_eq!(action.datatype, Some(HomieDataType::Enum));
+        assert_eq!(
+            member_refs(action),
+            vec!["homie/dev-a/switch/action".to_string(), "homie/dev-b/switch/action".to_string()]
+        );
+
+        // sibling property and other nodes are untouched
+        let state = get_prop(&result, "switch", "state");
+        assert_eq!(state.datatype, Some(HomieDataType::Boolean));
+        assert_eq!(get_prop(&result, "level", "value").format.as_deref(), Some("0:254"));
+    }
+
+    #[test]
+    fn overlay_compound_overrides_and_member_replacement() {
+        let store = overlay_store();
+        let spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+  aggregation_debounce: 150ms
+nodes:
+  - id: switch
+    properties:
+      - id: state
+        compound_spec:
+          aggregate_function: and
+          aggregation_debounce: 500ms
+          mapping:
+            output:
+              - { to: !Bool false }
+  - id: level
+    properties:
+      - id: value
+        compound_spec:
+          members:
+            - other-dev/level/value
+"#,
+        );
+        let result = materialize(&spec, &store, &domain()).spec;
+
+        // aggregate/debounce/mapping override; members stay generated
+        let state = get_prop(&result, "switch", "state");
+        let compound = state.compound_spec.as_ref().unwrap();
+        assert!(matches!(compound.aggregate_function, Some(AggregateFunctionType::And)));
+        assert_eq!(compound.aggregation_debounce, Some(Duration::from_millis(500)));
+        assert!(compound.mapping.is_some());
+        assert_eq!(
+            member_refs(state),
+            vec!["homie/dev-a/switch/state".to_string(), "homie/dev-b/switch/state".to_string()]
+        );
+
+        // non-empty overlay members replace the generated list; absent
+        // aggregate/debounce keep the generated values
+        let level = get_prop(&result, "level", "value");
+        assert_eq!(member_refs(level), vec!["homie/other-dev/level/value".to_string()]);
+        let compound = level.compound_spec.as_ref().unwrap();
+        assert!(matches!(compound.aggregate_function, Some(AggregateFunctionType::Avg)));
+        assert_eq!(compound.aggregation_debounce, Some(Duration::from_millis(150)));
+    }
+
+    #[test]
+    fn overlay_exclude_removes_generated_nodes_and_properties() {
+        let store = overlay_store();
+        let spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+nodes:
+  - id: level
+    exclude: true
+  - id: switch
+    properties:
+      - id: action
+        exclude: true
+"#,
+        );
+        let result = materialize(&spec, &store, &domain()).spec;
+
+        // level node and switch/action removed; switch/state survives
+        assert_eq!(result.nodes.len(), 1);
+        let switch = get_node(&result, "switch");
+        assert_eq!(switch.properties.len(), 1);
+        assert_eq!(switch.properties[0].id, id("state"));
+        // consumed overlay flags are cleared in the expanded spec
+        assert_eq!(switch.exclude, None);
+        assert_eq!(switch.properties[0].exclude, None);
+    }
+
+    #[test]
+    fn overlay_excluding_all_properties_drops_the_node() {
+        let store = overlay_store();
+        let spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+nodes:
+  - id: switch
+    properties:
+      - id: state
+        exclude: true
+      - id: action
+        exclude: true
+"#,
+        );
+        let result = materialize(&spec, &store, &domain()).spec;
+        assert!(result.nodes.iter().all(|n| n.id != id("switch")));
+    }
+
+    #[test]
+    fn overlay_new_ids_pass_through_untouched() {
+        let store = overlay_store();
+        let spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+nodes:
+  - id: scene
+    from_smarthome:
+      type: contact
+  - id: switch
+    properties:
+      - id: extra
+        datatype: string
+        compound_spec:
+          members:
+            - other-dev/some/prop
+"#,
+        );
+        let result = materialize(&spec, &store, &domain()).spec;
+
+        // new node appended as-is, incl. from_smarthome
+        let scene = get_node(&result, "scene");
+        assert_eq!(scene.from_smarthome, Some(SmarthomeSpec::Contact));
+
+        // new property appended to the generated node, compound untouched
+        let extra = get_prop(&result, "switch", "extra");
+        assert_eq!(extra.datatype, Some(HomieDataType::String));
+        assert_eq!(member_refs(extra), vec!["homie/other-dev/some/prop".to_string()]);
+        // generated properties still present
+        assert_eq!(get_node(&result, "switch").properties.len(), 3);
+    }
+
+    #[test]
+    fn structure_hash_is_stable_and_sensitive() {
+        let store = overlay_store();
+        let spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+nodes:
+  - id: switch
+    properties:
+      - id: action
+        format: toggle
+"#,
+        );
+
+        // identical inputs -> identical hash
+        let first = materialize(&spec, &store, &domain());
+        let second = materialize(&spec, &store, &domain());
+        assert_eq!(first.structure_hash, second.structure_hash);
+
+        // a structural change in a member (widened range) changes the hash
+        let changed_store = overlay_store_with(500);
+        let changed = materialize(&spec, &changed_store, &domain());
+        assert_ne!(first.structure_hash, changed.structure_hash);
+
+        // an overlay change (different format override) changes the hash
+        let other_spec = group_spec(
+            r#"
+id: my-lights
+group:
+  devices: [dev-a, dev-b]
+nodes:
+  - id: switch
+    properties:
+      - id: action
+        format: press
+"#,
+        );
+        let other = materialize(&other_spec, &store, &domain());
+        assert_ne!(first.structure_hash, other.structure_hash);
+    }
+
+    /// D-7(3): generated formats are emitted as strings into the expanded
+    /// spec and re-parsed by `VirtualDevice::new()` -- the round trip must be
+    /// lossless.
+    #[test]
+    fn generated_formats_round_trip_through_string_form() {
+        let cases: Vec<(HomieDataType, HomiePropertyFormat)> = vec![
+            (HomieDataType::Integer, int_range(Some(0), Some(254), Some(2))),
+            (HomieDataType::Integer, int_range(None, Some(50), None)),
+            (HomieDataType::Integer, int_range(Some(-10), None, None)),
+            (HomieDataType::Float, float_range(Some(0.5), Some(5.0), Some(0.1))),
+            (HomieDataType::Float, float_range(None, Some(2.5), None)),
+            (HomieDataType::Enum, enum_format(&["on", "off", "toggle"])),
+            (
+                HomieDataType::Color,
+                HomiePropertyFormat::Color(vec![ColorFormat::Rgb, ColorFormat::Hsv]),
+            ),
+        ];
+        for (datatype, format) in cases {
+            let rendered = format.to_string();
+            let parsed = HomiePropertyFormat::parse(&rendered, &datatype)
+                .unwrap_or_else(|e| panic!("'{}' must parse back as {:?}: {:?}", rendered, datatype, e));
+            assert_eq!(parsed, format, "round trip of '{}' must be lossless", rendered);
+        }
     }
 }

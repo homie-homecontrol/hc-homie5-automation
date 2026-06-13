@@ -117,7 +117,7 @@ impl VirtualProperty {
                 &mqtt_compound_members,
                 datatype,
                 devices,
-                compound_spec.aggregate_function,
+                compound_spec.aggregate_function.unwrap_or_default(),
             );
             log::debug!("{} -- Property value: {:?}", prop_ref.to_topic().build(), value);
 
@@ -316,7 +316,7 @@ impl VirtualProperty {
         homie_client: &HomieMQTTClient,
         homie_proto: &Homie5DeviceProtocol,
     ) -> Result<(), eyre::Error> {
-        if let Some(aggr_func) = self.compound_spec.as_ref().map(|f| f.aggregate_function) {
+        if let Some(aggr_func) = self.compound_spec.as_ref().map(|f| f.aggregate_function.unwrap_or_default()) {
             let value = update_compound_value(
                 self.compound_properties(),
                 &self.mqtt_compound_members,
