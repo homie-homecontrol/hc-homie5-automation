@@ -529,6 +529,34 @@ nodes:
         assert_eq!(spec.nodes[2].properties[0].exclude, Some(true));
     }
 
+    /// The "Device Groups" example from docs/virtual_devices.md must parse.
+    #[test]
+    fn group_spec_docs_example() {
+        let spec = parse(
+            r#"
+id: wz-stehlampe-papier
+name: Stehlampe Papier
+group:
+    devices:
+        - dev-ec-1b-bd-ff-fe-6c-f0-5b
+        - dev-ec-1b-bd-ff-fe-31-77-a3
+        - dev-ec-1b-bd-ff-fe-71-39-88
+    aggregation_debounce: 150ms
+nodes:
+    - id: switch
+      properties:
+          - id: action
+            format: toggle
+"#,
+        )
+        .expect("docs group example must parse");
+        let group = spec.group.expect("group must be set");
+        assert_eq!(group.devices.len(), 3);
+        assert_eq!(group.aggregation_debounce, Some(Duration::from_millis(150)));
+        assert_eq!(spec.nodes.len(), 1);
+        assert_eq!(spec.nodes[0].properties[0].format.as_deref(), Some("toggle"));
+    }
+
     #[test]
     fn group_exclude_matching() {
         let node_exclude: GroupExclude = "color".parse().unwrap();

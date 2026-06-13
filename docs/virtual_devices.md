@@ -71,7 +71,8 @@ A virtual Homie device is defined at the top level of the YAML configuration fil
 | **children**   | No       | array   | List of child device IDs if this device is a parent. Default: `[]`.                     |
 | **parent**     | No       | string  | ID of a parent device if applicable.                                                    |
 | **extensions** | No       | array   | List of extension names applied to the device. Default: `[]`.                           |
-| **nodes**      | Yes      | array   | List of nodes that define the functional parts of the device (e.g., switches, sensors). |
+| **group**      | No       | object  | Auto-materializes the device structure from a list of member devices. See [Device Groups](#device-groups). |
+| **nodes**      | Conditional | array | List of nodes that define the functional parts of the device (e.g., switches, sensors). Required unless `group` is set — for group devices `nodes` is an optional overlay. |
 
 ## Example
 
@@ -698,3 +699,131 @@ nodes:
 - This defines a **virtual level node** that represents multiple real light brightness sources.
 - The **brightness** property aggregates values from three light sources.
 - The **average brightness** is calculated with a **200ms debounce** to avoid unnecessary updates.
+
+# Device Groups
+
+Device groups remove the need to spell out every node, property, and `compound_spec` by hand when a virtual device simply combines several similar real devices (e.g., three bulbs of one floor lamp). Setting the device-level `group` key auto-materializes the whole device structure from the **discovered Homie descriptions** of the listed member devices:
+
+- All nodes and properties of the members are **unioned** into the virtual device.
+- Properties sharing the same `node-id/property-id` across members become a single **compound property** whose members are the source properties.
+- Property and node descriptions are **merged** (widest number range, union of enum/color values, settable OR, ...).
+- Aggregate functions are chosen **by datatype** (boolean → `or`, integer/float → `avg`, everything else → `equal`).
+- When a member device's description changes (or a member appears/disappears from discovery), the group device is **rebuilt and republished** automatically.
+
+The `nodes` section is optional on a group device and acts as an **overlay**: it can patch generated nodes/properties, exclude them, or add entirely new ones.
+
+## Group Fields
+
+| Key                      | Required | Type   | Description                                                                                                          |
+| ------------------------ | -------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
+| **devices**              | Yes      | array  | Member device IDs (in the configured Homie domain). List order defines priority for all "first wins" merge rules.     |
+| **aggregation_debounce** | No       | string | Default debounce applied to every generated compound with a non-`equal` aggregate function. No debounce when unset.   |
+| **exclude**              | No       | array  | Entries of the form `"node-id"` or `"node-id/prop-id"` excluded from auto-generation. Default: `[]`.                  |
+| **rebuild_debounce**     | No       | string | Debounce for structure rebuilds triggered by discovery changes of member devices. Default: `1s`.                      |
+
+## Merge Rules
+
+Members are processed **in list order**; "first" always refers to that order.
+
+| Aspect                       | Rule                                                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Node/property set            | Union across all members. Members that are not discovered (yet) or have no description are skipped silently — the device is published partially and grows when they appear. |
+| Node `name` / `type`         | First member with a non-empty value wins.                                                                               |
+| Property `name` / `unit`     | First member with a non-empty value wins.                                                                               |
+| `datatype`                   | Majority vote across members; ties broken by list order. Members with a losing datatype are **dropped** from that compound with a warning. |
+| `format` (integer/float)     | Widest range: min of mins, max of maxes; a missing min/max on any member makes that side unbounded. Smallest defined step wins. |
+| `format` (enum)              | Union of values, ordered by first appearance.                                                                           |
+| `format` (color)             | Union of color formats, ordered by first appearance.                                                                    |
+| `format` (other conflicts)   | Non-empty beats empty; otherwise first wins, mismatch is logged as a warning.                                           |
+| `settable`                   | OR across members. Set commands fan out to the settable members only.                                                   |
+| `retained`                   | First member's value; mismatch across members is logged as a warning.                                                   |
+| Generated `compound_spec`    | `members` = the surviving source properties (list order). `aggregate_function`: boolean → `or`, integer/float → `avg`, everything else → `equal`. `aggregation_debounce` = `group.aggregation_debounce` for non-`equal` aggregates. |
+| Empty nodes                  | A node whose properties were all excluded or dropped is removed entirely (Homie nodes need at least one property).      |
+
+## Overlays
+
+Entries under `nodes` that match a **generated** node or property ID are merged with patch semantics; new IDs are added untouched (manual nodes, `from_smarthome` nodes, etc. keep working exactly as on non-group devices):
+
+- **Description fields** (`name`, `type`, `datatype`, `format`, `settable`, `retained`, `unit`) override the generated values when present.
+- **`compound_spec`**: `aggregate_function`, `aggregation_debounce`, and `mapping` override the generated values when present; a non-empty `members` list **replaces** the generated members entirely.
+- **`exclude: true`** on an overlay node or property removes the generated node/property — equivalent to a `group.exclude` entry. On a non-group device the flag is ignored with a warning.
+
+## Rebuild Behavior
+
+Group devices react to discovery changes of their members:
+
+- A member's description change or removal schedules a rebuild, debounced per group (`rebuild_debounce`, default `1s`) so discovery bursts (e.g., at startup) collapse into a single rebuild.
+- The rebuild re-materializes the structure and compares it against the current one — if nothing changed structurally, it is a no-op.
+- On a structural change the device is republished with a fresh description version (normal `init` → `ready` cycle). Aggregated values are recalculated from the current member values.
+
+## Example: Reducing a Manual Definition
+
+A floor lamp consisting of three identical bulbs, written out manually:
+
+```yaml
+id: wz-stehlampe-papier
+name: Stehlampe Papier
+nodes:
+    - id: switch
+      from_smarthome:
+          type: switch
+          config:
+              settable: true
+      properties:
+          - id: state
+            compound_spec:
+                members:
+                    - dev-ec-1b-bd-ff-fe-6c-f0-5b/switch/state
+                    - dev-ec-1b-bd-ff-fe-31-77-a3/switch/state
+                    - dev-ec-1b-bd-ff-fe-71-39-88/switch/state
+                aggregate_function: or
+                aggregation_debounce: 150ms
+          - id: action
+            format: toggle
+            compound_spec:
+                members:
+                    - dev-ec-1b-bd-ff-fe-6c-f0-5b/switch/action
+                    - dev-ec-1b-bd-ff-fe-31-77-a3/switch/action
+                    - dev-ec-1b-bd-ff-fe-71-39-88/switch/action
+                aggregate_function: equal
+    - id: level
+      from_smarthome:
+          type: level
+          config:
+              settable: true
+      properties:
+          - id: value
+            compound_spec:
+                members:
+                    - dev-ec-1b-bd-ff-fe-6c-f0-5b/level/value
+                    - dev-ec-1b-bd-ff-fe-31-77-a3/level/value
+                    - dev-ec-1b-bd-ff-fe-71-39-88/level/value
+                aggregate_function: avg
+                aggregation_debounce: 150ms
+          # ... level/action, color/color, color/color-temperature ...
+```
+
+The same device as a group:
+
+```yaml
+id: wz-stehlampe-papier
+name: Stehlampe Papier
+group:
+    devices:
+        - dev-ec-1b-bd-ff-fe-6c-f0-5b
+        - dev-ec-1b-bd-ff-fe-31-77-a3
+        - dev-ec-1b-bd-ff-fe-71-39-88
+    aggregation_debounce: 150ms
+nodes:
+    - id: switch
+      properties:
+          - id: action
+            format: toggle
+```
+
+**Explanation:**
+
+- All nodes (`switch`, `level`, `color`, ...) and their properties are generated from the discovered descriptions of the three bulbs — including ones the manual definition did not bother to list.
+- Boolean properties (e.g., `switch/state`) aggregate with `or`, numeric ones (e.g., `level/value`, `color/color-temperature`) with `avg` — both with the group-wide `150ms` debounce; everything else uses `equal`.
+- The single overlay entry narrows the generated `switch/action` format down to `toggle` (the bulbs additionally support e.g. `brightness-up`); members and aggregate of that property remain the generated ones.
+- New bulbs only need to be added to `group.devices`.
