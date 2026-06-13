@@ -320,6 +320,88 @@ impl VirtualDeviceManager {
         }
     }
 
+    /// Rebuild a materialized group device after member discovery changes
+    /// (called on [`AppEvent::RebuildGroupDevice`]).
+    ///
+    /// Re-runs materialization on the stored original spec; when the
+    /// structure hash is unchanged the rebuild is a no-op. Otherwise the
+    /// existing [`VirtualDevice`] is torn down (cancel mqtt reads, publish
+    /// disconnected state, drop property indexes) and a new one is created
+    /// and published (init -> ready cycle with a fresh description version).
+    /// The controller child registration is kept across the rebuild so the
+    /// controller description does not churn.
+    ///
+    /// Returns the device ref of the rebuilt device so the caller can
+    /// re-notify rule queries with the new description, or `None` when
+    /// nothing changed (or the group is no longer registered).
+    pub async fn rebuild_group_device(&self, hash: ConfigItemHash) -> Result<Option<DeviceRef>> {
+        let (original_spec, old_hash) = {
+            let groups = self.groups.read().await;
+            let Some(runtime) = groups.get(&hash) else {
+                // group was removed while the rebuild event was in flight
+                return Ok(None);
+            };
+            (runtime.original_spec.clone(), runtime.structure_hash)
+        };
+
+        let devices = self.dm.read().await;
+        let materialized = materialize(&original_spec, &devices, self.homie_domain());
+        let device_ref = DeviceRef::new(self.homie_domain().clone(), materialized.spec.id.clone());
+
+        let exists = self.devices.read().await.contains_key(&device_ref);
+        if materialized.structure_hash == old_hash && exists {
+            log::debug!(
+                "[group:{}] discovery change did not alter the materialized structure -- skipping rebuild",
+                original_spec.id
+            );
+            return Ok(None);
+        }
+
+        // Teardown of the existing device. Mirrors remove_device, but the
+        // controller child registration is intentionally kept.
+        {
+            let mut vdevices = self.devices.write().await;
+            if let Some(mut dev) = vdevices.remove(&device_ref) {
+                log::debug!("[group:{}] tearing down for rebuild", original_spec.id);
+                dev.cancel_all_mqtt_reads().await?;
+                dev.disconnect_device().await?;
+                let mut index = self.index.write().await;
+                index.remove_indexes_for_virtual_device(&device_ref);
+            }
+        }
+
+        let mut dev = VirtualDevice::new(
+            device_ref.clone(),
+            hash,
+            materialized.spec,
+            self.device_ref.clone(),
+            self.homie_proto(),
+            &self.homie_client,
+            &devices,
+            &self.mqtt_client,
+            self.app_event_sender.clone(),
+        )
+        .await?;
+        {
+            let mut index = self.index.write().await;
+            index.add_index_for_virtual_device(&dev);
+        }
+        if !dev.mqtt_reads() {
+            dev.publish_device().await?;
+        } else {
+            dev.publish_state().await?;
+        }
+        self.devices.write().await.insert(device_ref.clone(), dev);
+
+        // Update the rebuild gate only after the new device is in place; on
+        // creation failure the stale hash keeps the next trigger rebuilding.
+        if let Some(runtime) = self.groups.write().await.get_mut(&hash) {
+            runtime.structure_hash = materialized.structure_hash;
+        }
+        log::info!("[group:{}] rebuilt and republished after member discovery change", original_spec.id);
+        Ok(Some(device_ref))
+    }
+
     pub async fn add_child_device(&mut self, child_id: HomieID) -> Result<()> {
         self.device_desc.add_child(child_id);
         self.stage_or_publish_children().await
