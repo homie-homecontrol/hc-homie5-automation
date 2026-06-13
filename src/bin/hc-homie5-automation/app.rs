@@ -34,6 +34,45 @@ impl Tokenizer for LuaFileTokenizer {
     }
 }
 
+/// Starts the config-watcher backend for one config kind based on its
+/// configured [`ConfigBackend`].
+///
+/// * `kind` — label used in the missing-folder panic message
+///   (`"Configured {kind} folder [..] does not exist!"`)
+/// * `log_kind` — label used in the backend-selection debug logs
+/// * `file_glob` — file pattern watched by the `File` backend (e.g. `*.yaml`)
+/// * `client_id_suffix` — appended to the MQTT client id for the `Mqtt`
+///   backend's dedicated connection (e.g. `-cfg-r`)
+fn run_config_backend(
+    settings: &crate::settings::Settings,
+    backend_config: &ConfigBackend,
+    kind: &str,
+    log_kind: &str,
+    file_glob: &str,
+    client_id_suffix: &str,
+) -> std::result::Result<(backend::WatcherHandle, mpsc::Receiver<backend::DocumentEvent>), WatcherError> {
+    match backend_config {
+        ConfigBackend::File { path } => {
+            let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
+                panic!("Configured {} folder [{}] does not exist!", kind, path.as_os_str().to_string_lossy())
+            });
+            backend::run_config_file_watcher(absolute_path, file_glob)
+        }
+        ConfigBackend::Kubernetes { name, namespace } => {
+            log::debug!("Using Kubernetes backend for {}", log_kind);
+            backend::run_configmap_watcher(name.to_string(), namespace.to_string())
+        }
+        ConfigBackend::Mqtt { topic } => {
+            let mco = settings
+                .homie
+                .to_mqtt_client_config()
+                .client_id(format!("{}{}", &settings.homie.client_id, client_id_suffix));
+            log::debug!("Using Mqtt backend for {}", log_kind);
+            backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
+        }
+    }
+}
+
 pub async fn initialize_app(
 ) -> Result<(EventMultiPlexer, HomieClientHandle, HomieClientHandle, MqttClientHandle, SolarEventHandle, AppState)> {
     let settings = &SETTINGS;
@@ -90,25 +129,7 @@ pub async fn initialize_app(
     let deserialize_rules = |doc: &str| serde_yaml_ng::from_str(doc);
 
     let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
-        || match &settings.app.rules_config {
-            ConfigBackend::File { path } => {
-                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
-                    panic!("Configured Rules folder [{}] does not exist!", path.as_os_str().to_string_lossy())
-                });
-                backend::run_config_file_watcher(absolute_path, "*.yaml")
-            }
-            ConfigBackend::Kubernetes { name, namespace } => {
-                backend::run_configmap_watcher(name.to_string(), namespace.to_string())
-            }
-            ConfigBackend::Mqtt { topic } => {
-                let mco = settings
-                    .homie
-                    .to_mqtt_client_config()
-                    .client_id(format!("{}-cfg-r", &settings.homie.client_id));
-                log::debug!("Using Mqtt backend for virtual devices");
-                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
-            }
-        },
+        || run_config_backend(settings, &settings.app.rules_config, "Rules", "rules", "*.yaml", "-cfg-r"),
         &YamlTokenizer,
         deserialize_rules,
     )?;
@@ -116,25 +137,15 @@ pub async fn initialize_app(
     let deserialize_virtual_devices = |doc: &str| serde_yaml_ng::from_str(doc);
 
     let (vdevices_watcher_handle, vdevices_receiver) = run_config_item_watcher::<VirtualDeviceSpec, _>(
-        || match &settings.app.virtual_devices_config {
-            ConfigBackend::File { path } => {
-                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
-                    panic!("Configured Virtual Devices folder [{}] does not exist!", path.as_os_str().to_string_lossy())
-                });
-                backend::run_config_file_watcher(absolute_path, "*.yaml")
-            }
-            ConfigBackend::Kubernetes { name, namespace } => {
-                log::debug!("Using Kubernetes backend for virtual devices");
-                backend::run_configmap_watcher(name.to_string(), namespace.to_string())
-            }
-            ConfigBackend::Mqtt { topic } => {
-                let mco = settings
-                    .homie
-                    .to_mqtt_client_config()
-                    .client_id(format!("{}-cfg-vd", &settings.homie.client_id));
-                log::debug!("Using Mqtt backend for virtual devices");
-                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
-            }
+        || {
+            run_config_backend(
+                settings,
+                &settings.app.virtual_devices_config,
+                "Virtual Devices",
+                "virtual devices",
+                "*.yaml",
+                "-cfg-vd",
+            )
         },
         &YamlTokenizer,
         deserialize_virtual_devices,
@@ -143,25 +154,15 @@ pub async fn initialize_app(
     let deserialize_lua_file = |doc: &str| -> std::result::Result<String, WatcherError> { Ok(doc.to_string()) };
 
     let (lua_files_watcher_handle, lua_files_receiver) = run_config_item_watcher::<String, _>(
-        || match &settings.app.lua_files_config {
-            ConfigBackend::File { path } => {
-                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
-                    panic!("Configured Lua modules folder [{}] does not exist!", path.as_os_str().to_string_lossy())
-                });
-                backend::run_config_file_watcher(absolute_path, "*.lua")
-            }
-            ConfigBackend::Kubernetes { name, namespace } => {
-                log::debug!("Using Kubernetes backend for lua modules");
-                backend::run_configmap_watcher(name.to_string(), namespace.to_string())
-            }
-            ConfigBackend::Mqtt { topic } => {
-                let mco = settings
-                    .homie
-                    .to_mqtt_client_config()
-                    .client_id(format!("{}-cfg-lua", &settings.homie.client_id));
-                log::debug!("Using Mqtt backend for lua modules");
-                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
-            }
+        || {
+            run_config_backend(
+                settings,
+                &settings.app.lua_files_config,
+                "Lua modules",
+                "lua modules",
+                "*.lua",
+                "-cfg-lua",
+            )
         },
         &LuaFileTokenizer,
         deserialize_lua_file,
@@ -180,26 +181,7 @@ pub async fn initialize_app(
     };
 
     let (meta_watcher_handle, meta_receiver) = run_config_item_watcher::<MetaConfig, _>(
-        || match &settings.app.meta_config {
-            ConfigBackend::File { path } => {
-                let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
-                    panic!("Configured meta folder [{}] does not exist!", path.as_os_str().to_string_lossy())
-                });
-                backend::run_config_file_watcher(absolute_path, "*.yaml")
-            }
-            ConfigBackend::Kubernetes { name, namespace } => {
-                log::debug!("Using Kubernetes backend for meta overlays");
-                backend::run_configmap_watcher(name.to_string(), namespace.to_string())
-            }
-            ConfigBackend::Mqtt { topic } => {
-                let mco = settings
-                    .homie
-                    .to_mqtt_client_config()
-                    .client_id(format!("{}-cfg-meta", &settings.homie.client_id));
-                log::debug!("Using Mqtt backend for meta overlays");
-                backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
-            }
-        },
+        || run_config_backend(settings, &settings.app.meta_config, "meta", "meta overlays", "*.yaml", "-cfg-meta"),
         &YamlTokenizer,
         deserialize_meta,
     )?;
