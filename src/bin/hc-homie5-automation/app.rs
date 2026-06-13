@@ -106,7 +106,7 @@ pub async fn initialize_app(
         dm.clone(),
         mqtt_client.clone(),
         app_event_sender.clone(),
-        crate::settings::vdm_config_from_homie(&settings.homie),
+        crate::settings::vdm_config_from_homie(&settings.homie, &settings.app),
     )
     .await?;
 

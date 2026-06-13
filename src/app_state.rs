@@ -11,12 +11,15 @@ use crate::{
     timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AppEvent {
     // Tasks
     RecalculateVirtualPropertyValue(PropertyRef),
     CancelPropertyValueReadFromMqtt(PropertyRef),
     UpdateVirtualDevicesQueries(DeviceRef),
+    /// Publish a pending (debounced) children update of the controller
+    /// device description (see [`VirtualDeviceManager::flush_children`]).
+    FlushControllerChildren,
 
     Exit,
 }

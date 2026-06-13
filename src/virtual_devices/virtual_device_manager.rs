@@ -7,6 +7,7 @@ use hc_homie5::client::{
 };
 use hc_homie5::device::HomieDevice;
 use hc_homie5::homie_device;
+use hc_homie5::util::DebouncedSender;
 use homie5::{device_description::DeviceDescriptionBuilder, Homie5ControllerProtocol, HomieValue, PropertyRef};
 use tokio::sync::{mpsc, RwLock};
 
@@ -26,6 +27,11 @@ pub struct VirtualDeviceManagerConfig {
     pub homie_domain: HomieDomain,
     pub controller_id: HomieID,
     pub controller_name: String,
+    /// Debounce window for controller children updates. While child devices
+    /// are added/removed in bursts (e.g. initial config load), the controller
+    /// device description is republished only once per quiet period instead
+    /// of once per child. `None` publishes immediately on every change.
+    pub controller_children_debounce: Option<Duration>,
 }
 
 #[homie_device]
@@ -42,6 +48,12 @@ pub struct VirtualDeviceManager {
     /// Observes queued plus in-flight publishes of this manager's device
     /// client connection (see [`VirtualDeviceManager::flush`]).
     pending_publishes: PendingPublishObserver,
+    /// When set, children changes are staged and the controller description
+    /// is republished debounced via [`AppEvent::FlushControllerChildren`].
+    children_flush: Option<DebouncedSender<AppEvent>>,
+    /// True when the controller description has staged children changes that
+    /// have not been published yet (see [`VirtualDeviceManager::flush_children`]).
+    children_dirty: bool,
 }
 
 impl VirtualDeviceManager {
@@ -74,6 +86,11 @@ impl VirtualDeviceManager {
 
         let pending_publishes = device_client_handle.pending_publishes();
 
+        let children_flush = config
+            .controller_children_debounce
+            .filter(|d| !d.is_zero())
+            .map(|debounce| DebouncedSender::new(debounce, app_event_sender.clone()));
+
         Ok((
             Self {
                 status: HomieDeviceStatus::Init,
@@ -89,6 +106,8 @@ impl VirtualDeviceManager {
                 index,
                 files: CfgFilesTracker::new(),
                 pending_publishes,
+                children_flush,
+                children_dirty: false,
             },
             device_client_handle,
             homie_event_receiver,
@@ -176,21 +195,45 @@ impl VirtualDeviceManager {
 
     pub async fn add_child_device(&mut self, child_id: HomieID) -> Result<()> {
         self.device_desc.add_child(child_id);
-        self.device_desc.update_version();
-
-        self.status = HomieDeviceStatus::Init;
-        self.publish_state().await?;
-        self.publish_description().await?;
-        self.status = HomieDeviceStatus::Ready;
-        self.publish_state().await?;
-
-        Ok(())
+        self.stage_or_publish_children().await
     }
 
     pub async fn remove_child_device(&mut self, child_id: &HomieID) -> Result<()> {
         self.device_desc.remove_child(child_id);
-        self.device_desc.update_version();
+        self.stage_or_publish_children().await
+    }
 
+    /// Stage a children change for a debounced publish, or publish
+    /// immediately when no debounce is configured.
+    async fn stage_or_publish_children(&mut self) -> Result<()> {
+        self.device_desc.update_version();
+        if let Some(children_flush) = &self.children_flush {
+            self.children_dirty = true;
+            // each staged change resets the debounce timer; once the burst
+            // settles, a single FlushControllerChildren event is emitted and
+            // handled by the event loop (which calls [`flush_children`]).
+            children_flush.send(AppEvent::FlushControllerChildren).await;
+            Ok(())
+        } else {
+            self.republish_controller_description().await
+        }
+    }
+
+    /// Publish staged children changes of the controller description. Call
+    /// this on [`AppEvent::FlushControllerChildren`] and before shutdown so
+    /// the retained description is up to date. Returns `true` if a republish
+    /// occurred, `false` when nothing was pending.
+    pub async fn flush_children(&mut self) -> Result<bool> {
+        if !self.children_dirty {
+            return Ok(false);
+        }
+        self.children_dirty = false;
+        self.republish_controller_description().await?;
+        Ok(true)
+    }
+
+    /// Republish the controller description with an init -> ready state transition.
+    async fn republish_controller_description(&mut self) -> Result<()> {
         self.status = HomieDeviceStatus::Init;
         self.publish_state().await?;
         self.publish_description().await?;

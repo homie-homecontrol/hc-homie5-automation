@@ -21,6 +21,11 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
                     .queries_virtual_device_updated(&device_ref, vdev.description());
             }
         }
+        AppEvent::FlushControllerChildren => {
+            if state.vdm.flush_children().await? {
+                log::debug!("Published debounced children update for controller device");
+            }
+        }
         AppEvent::Exit => {
             // Stop configuration watchers
             state.rule_watcher_handle.stop().await?;
@@ -30,6 +35,9 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
 
             // stop discovery and send disconnect signal for all devices
             state.dm.stop_discover().await?;
+            // publish any staged (debounced) children changes so the retained
+            // controller description is complete before disconnecting
+            state.vdm.flush_children().await?;
             state.vdm.disconnect_virtual_devices().await?;
             state.vdm.disconnect_device().await?;
 

@@ -42,6 +42,11 @@ pub struct AppSettings {
     /// Global execution budget for Lua `run` script actions. Individual `run`
     /// actions can override it via `script_timeout`. Default: 5s.
     pub lua_script_timeout: Duration,
+    /// Debounce window for controller children updates. Bursts of virtual
+    /// device creations/removals republish the controller description only
+    /// once per quiet period. `0` disables debouncing (publish immediately).
+    /// Default: 200ms.
+    pub controller_children_debounce: Duration,
 }
 
 /// Newtype so a duration string setting (e.g. `5s`, `500ms`) can be parsed
@@ -240,11 +245,17 @@ impl Default for AppSettings {
                 DurationSetting(Duration::from_secs(5)),
             )
             .0,
+            controller_children_debounce: settings::generic_setting(
+                &ENV_PREFIX,
+                "CONTROLLER_CHILDREN_DEBOUNCE",
+                DurationSetting(Duration::from_millis(200)),
+            )
+            .0,
         }
     }
 }
 
-pub fn vdm_config_from_homie(settings: &HomieSettings) -> VirtualDeviceManagerConfig {
+pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> VirtualDeviceManagerConfig {
     VirtualDeviceManagerConfig {
         hostname: settings.hostname.clone(),
         port: settings.port,
@@ -260,5 +271,7 @@ pub fn vdm_config_from_homie(settings: &HomieSettings) -> VirtualDeviceManagerCo
             .controller_name
             .clone()
             .unwrap_or_else(|| "Homecontrol Automation Controller".to_string()),
+        controller_children_debounce: (!app.controller_children_debounce.is_zero())
+            .then_some(app.controller_children_debounce),
     }
 }

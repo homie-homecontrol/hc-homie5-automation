@@ -37,6 +37,7 @@ Settings are passed via environment variables. The environment variables are pre
 | `HCACTL_VALUE_STORE_CONFIG`     | Defines how values are stored                     | `inmemory`,<br />`sqlite:/path/to/database.db`,<br />`kubernetes:secret\|configmap,name[,namespace]` | inmemory                      | `"sqlite:/service/values.db"`                   |
 | `HCACTL_LOCATION`               | Defines the geographical location                 | `<latitude>,<longitude>,<elevation>`                                                               | `0,0,0`                       | `"48.1351,11.5820,519"`                         |
 | `HCACTL_LUA_SCRIPT_TIMEOUT`     | Global execution budget for Lua `run` script actions (a `script_timeout` on the `run` action overrides it) | duration string: `<integer>` + `ms`/`s`/`m`/`h`/`d`                                                | `5s`                          | `"10s"`                                         |
+| `HCACTL_CONTROLLER_CHILDREN_DEBOUNCE` | Debounce window for controller children updates. Bursts of virtual device creations/removals republish the controller description only once per quiet period. `0` disables debouncing (publish immediately on every change) | duration string: `<integer>` + `ms`/`s`/`m`/`h`/`d`                                                | `200ms`                       | `"500ms"`                                       |
 
 > Note:
 > - For direct binary runs, application defaults are relative paths like `file:./rules`, `file:./virtual_devices`, `file:./meta`, and `file:./lua`.
