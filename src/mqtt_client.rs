@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use hc_homie5::client::{await_publishes_flushed, FlushTimeout, PendingPublishTracker};
 use rumqttc::{AsyncClient, ClientError, ConnectionError, MqttOptions, QoS, SubscribeFilter};
 use thiserror::Error;
 use tokio::{
@@ -61,6 +62,7 @@ pub fn run_mqtt_client(
 
     let (mqtt_client, mut eventloop) = AsyncClient::new(mqttoptions, channel_size);
     let (stop_sender, mut stop_receiver) = watch::channel(false);
+    let (mut pending_publishes, pending_publishes_rx) = PendingPublishTracker::new();
 
     let handle = tokio::task::spawn(async move {
         let mut connected = false;
@@ -104,8 +106,24 @@ pub fn run_mqtt_client(
                         connected = true;
                         sender.send(MqttClientEvent::Connect).await?;
                     }
+                    // Pending-publish tracking: pkids are recorded on outgoing
+                    // publish and released on broker acknowledgement so
+                    // `ManagedMqttClient::flush` can await an empty in-flight set.
+                    rumqttc::Event::Outgoing(rumqttc::Outgoing::Publish(pkid)) => {
+                        pending_publishes.record_publish(pkid);
+                    }
+                    rumqttc::Event::Incoming(rumqttc::Incoming::PubAck(ack)) => {
+                        pending_publishes.record_ack(ack.pkid);
+                    }
+                    rumqttc::Event::Incoming(rumqttc::Incoming::PubComp(comp)) => {
+                        pending_publishes.record_ack(comp.pkid);
+                    }
                     rumqttc::Event::Outgoing(rumqttc::Outgoing::Disconnect) => {
                         log::trace!("MQTT: Connection closed from our side.",);
+                        // Nothing can be acknowledged after the disconnect —
+                        // release any flush waiters instead of letting them
+                        // run into their max_wait.
+                        pending_publishes.clear();
                         sender.send(MqttClientEvent::Disconnect).await?;
 
                         break;
@@ -118,6 +136,11 @@ pub fn run_mqtt_client(
                         connected = false;
                         sender.send(MqttClientEvent::Disconnect).await?;
                     }
+                    // Connection lost: rumqttc retransmits in-flight QoS>0
+                    // publishes itself after reconnecting (re-emitted as
+                    // Outgoing::Publish), so drop the stale pkids — they must
+                    // not wedge flush().
+                    pending_publishes.clear();
                     log::error!("MQTTClient: Error connecting mqtt. {:#?}", err);
                     sender.send(MqttClientEvent::Error(err)).await?;
                     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -128,13 +151,20 @@ pub fn run_mqtt_client(
         log::trace!("Exiting mqtt client eventloop...");
         Ok(())
     });
-    Ok((MqttClientHandle { handle, stop_sender }, ManagedMqttClient::new(mqtt_client), receiver))
+    Ok((
+        MqttClientHandle { handle, stop_sender },
+        ManagedMqttClient::new(mqtt_client, pending_publishes_rx),
+        receiver,
+    ))
 }
 
 #[derive(Debug, Clone)]
 pub struct ManagedMqttClient {
     client: AsyncClient,
     subscriptions: Arc<RwLock<SubscriptionTracker>>,
+    /// Observes the number of in-flight (unacknowledged) QoS>0 publishes
+    /// tracked by the [`run_mqtt_client`] poll loop.
+    pending_publishes: watch::Receiver<usize>,
 }
 
 /// Refcounted subscription bookkeeping for [`ManagedMqttClient`].
@@ -191,11 +221,22 @@ impl SubscriptionTracker {
 }
 
 impl ManagedMqttClient {
-    pub fn new(client: AsyncClient) -> Self {
+    pub fn new(client: AsyncClient, pending_publishes: watch::Receiver<usize>) -> Self {
         Self {
             client,
             subscriptions: Arc::new(RwLock::new(SubscriptionTracker::default())),
+            pending_publishes,
         }
+    }
+
+    /// Waits until all in-flight QoS>0 publishes have been acknowledged by
+    /// the broker.
+    ///
+    /// Returns immediately when nothing is pending; `max_wait` is only an
+    /// upper bound for the dead-broker case. Call this before disconnecting
+    /// to guarantee that final messages reached the broker.
+    pub async fn flush(&self, max_wait: Duration) -> Result<(), FlushTimeout> {
+        await_publishes_flushed(self.pending_publishes.clone(), max_wait).await
     }
 
     /// Sends a MQTT Publish to the `EventLoop`.
