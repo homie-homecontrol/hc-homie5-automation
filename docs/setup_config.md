@@ -36,7 +36,7 @@ Settings are passed via environment variables. The environment variables are pre
 | `HCACTL_LUA_MODULE_CONFIG`      | Specifies the backend for lua module storage      | `file:/path/to/lua`,<br/>`mqtt:some/topic`,<br /> `kubernetes:config-name[,namespace]`             | file:/service/lua             | `"file:/data/lua_scripts"`                      |
 | `HCACTL_VALUE_STORE_CONFIG`     | Defines how values are stored                     | `inmemory`,<br />`sqlite:/path/to/database.db`,<br />`kubernetes:secret\|configmap,name[,namespace]` | inmemory                      | `"sqlite:/service/values.db"`                   |
 | `HCACTL_LOCATION`               | Defines the geographical location                 | `<latitude>,<longitude>,<elevation>`                                                               | `0,0,0`                       | `"48.1351,11.5820,519"`                         |
-| `HCACTL_LUA_SCRIPT_TIMEOUT`     | Global execution budget for Lua `run` script actions (per-rule `script_timeout` overrides it) | duration string: `<integer>` + `ms`/`s`/`m`/`h`/`d`                                                | `5s`                          | `"10s"`                                         |
+| `HCACTL_LUA_SCRIPT_TIMEOUT`     | Global execution budget for Lua `run` script actions (a `script_timeout` on the `run` action overrides it) | duration string: `<integer>` + `ms`/`s`/`m`/`h`/`d`                                                | `5s`                          | `"10s"`                                         |
 
 > Note:
 > - For direct binary runs, application defaults are relative paths like `file:./rules`, `file:./virtual_devices`, `file:./meta`, and `file:./lua`.

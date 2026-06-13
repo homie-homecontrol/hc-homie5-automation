@@ -17,10 +17,6 @@ pub struct Rule {
     pub name: String,
     pub triggers: Vec<RuleTrigger>,
     pub actions: Vec<RuleAction>,
-    /// Optional per-rule execution budget for `run` script actions. Overrides
-    /// the global `lua_script_timeout` setting. Duration string, e.g. `500ms`, `10s`.
-    #[serde(default, deserialize_with = "deserialize_optional_duration")]
-    pub script_timeout: Option<Duration>,
 }
 
 /// Parses a duration string of the form `<integer><unit>`.

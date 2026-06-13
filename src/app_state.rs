@@ -42,7 +42,7 @@ pub struct AppState {
     pub meta_watcher_handle: ConfigItemWatcherHandle,
     pub lua_files_watcher_handle: ConfigItemWatcherHandle,
     /// Global default execution budget for Lua `run` script actions
-    /// (per-rule `script_timeout` overrides it).
+    /// (a per-action `script_timeout` on the `run` action overrides it).
     pub lua_script_timeout: std::time::Duration,
 }
 

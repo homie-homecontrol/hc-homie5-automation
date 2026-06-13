@@ -39,8 +39,8 @@ pub struct AppSettings {
     pub lua_files_config: ConfigBackend,
     pub value_store_config: ValueStoreConfig,
     pub location: LocationConfig,
-    /// Global execution budget for Lua `run` script actions. Rules can
-    /// override it per rule via `script_timeout`. Default: 5s.
+    /// Global execution budget for Lua `run` script actions. Individual `run`
+    /// actions can override it via `script_timeout`. Default: 5s.
     pub lua_script_timeout: Duration,
 }
 

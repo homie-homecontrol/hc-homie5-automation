@@ -185,10 +185,14 @@ pub async fn execute_rule_action<'a>(
         RuleAction::CancelTimer { timer_id } => {
             ctx.timers.cancel_timer(timer_id);
         }
-        RuleAction::Run { script, timer } => {
+        RuleAction::Run {
+            script,
+            timer,
+            script_timeout,
+        } => {
             if ignore_timer || timer.is_none() {
                 log::debug!("{} -- starting script", rule_name);
-                match run_script(script, rule_hash, rule_name, trigger_event, ctx).await {
+                match run_script(script, rule_hash, rule_name, *script_timeout, trigger_event, ctx).await {
                     Ok(_) => {
                         log::debug!("{} -- script run successfull", rule_name);
                     }
@@ -280,10 +284,11 @@ async fn handle_timer(
     Ok(())
 }
 
-/// Resolves the effective script execution budget: a per-rule `script_timeout`
-/// overrides the global `lua_script_timeout` default.
-fn effective_script_budget(per_rule: Option<Duration>, global_default: Duration) -> Duration {
-    per_rule.unwrap_or(global_default)
+/// Resolves the effective script execution budget: a per-action
+/// `script_timeout` on the `run` action overrides the global
+/// `lua_script_timeout` default.
+fn effective_script_budget(per_action: Option<Duration>, global_default: Duration) -> Duration {
+    per_action.unwrap_or(global_default)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -291,14 +296,12 @@ pub(crate) async fn run_script(
     script: &str,
     rule_hash: ConfigItemHash,
     rule_name: &str,
+    script_timeout: Option<Duration>,
     trigger_event: &RuleTriggerEvent<'_>,
     ctx: &RuleContext<'_>,
 ) -> mlua::Result<()> {
     log::trace!("preparing script run");
-    let budget = effective_script_budget(
-        ctx.rules.get(&rule_hash).and_then(|rule| rule.script_timeout),
-        ctx.lua_script_timeout,
-    );
+    let budget = effective_script_budget(script_timeout, ctx.lua_script_timeout);
     let lua = Lua::new();
 
     let lua_homie = LuaHomie { dm: ctx.dm.clone() };
@@ -442,8 +445,8 @@ mod script_timeout_tests {
     }
 
     #[tokio::test]
-    async fn script_timeout_per_rule_override_respected() {
-        // Budget resolution: per-rule override wins over the global default.
+    async fn script_timeout_per_action_override_respected() {
+        // Budget resolution: per-action override wins over the global default.
         assert_eq!(effective_script_budget(None, Duration::from_secs(5)), Duration::from_secs(5));
         assert_eq!(
             effective_script_budget(Some(Duration::from_millis(100)), Duration::from_secs(5)),
@@ -451,7 +454,7 @@ mod script_timeout_tests {
         );
 
         // A sleep the 5s global default tolerates is cancelled under a 100ms
-        // per-rule override...
+        // per-action override...
         let lua = lua_with_sleep();
         exec_script_with_budget(&lua, "sleep_ms(1000)", Duration::from_millis(100), "override-rule")
             .await
@@ -465,21 +468,33 @@ mod script_timeout_tests {
     }
 
     #[test]
-    fn script_timeout_parses_from_rule_yaml() {
-        let rule: Rule = serde_yaml_ng::from_str(
+    fn script_timeout_parses_from_run_action_yaml() {
+        let action: RuleAction = serde_yaml_ng::from_str(
             r#"
-name: test
+type: run
+script: print("hi")
 script_timeout: 100ms
-triggers:
-  - timer_id: t1
-actions:
-  - type: run
-    script: print("hi")
 "#,
         )
-        .expect("rule with script_timeout should deserialize");
-        assert_eq!(rule.script_timeout, Some(Duration::from_millis(100)));
+        .expect("run action with script_timeout should deserialize");
+        let RuleAction::Run { script_timeout, .. } = action else {
+            panic!("expected run action");
+        };
+        assert_eq!(script_timeout, Some(Duration::from_millis(100)));
 
+        let action: RuleAction = serde_yaml_ng::from_str(
+            r#"
+type: run
+script: print("hi")
+"#,
+        )
+        .expect("run action without script_timeout should deserialize");
+        let RuleAction::Run { script_timeout, .. } = action else {
+            panic!("expected run action");
+        };
+        assert_eq!(script_timeout, None);
+
+        // ...and still works embedded in a full rule.
         let rule: Rule = serde_yaml_ng::from_str(
             r#"
 name: test
@@ -488,9 +503,13 @@ triggers:
 actions:
   - type: run
     script: print("hi")
+    script_timeout: 2s
 "#,
         )
-        .expect("rule without script_timeout should deserialize");
-        assert_eq!(rule.script_timeout, None);
+        .expect("rule should deserialize");
+        let RuleAction::Run { script_timeout, .. } = &rule.actions[0] else {
+            panic!("expected run action");
+        };
+        assert_eq!(*script_timeout, Some(Duration::from_secs(2)));
     }
 }
