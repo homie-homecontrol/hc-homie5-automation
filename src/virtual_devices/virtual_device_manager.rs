@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use color_eyre::eyre::{self, eyre, Result};
 use config_watcher::ConfigItemHash;
@@ -16,7 +20,26 @@ use crate::{
     mqtt_client::ManagedMqttClient,
 };
 
-use super::{property_indexer::PropertyIndexer, VirtualDevice, VirtualDeviceSpec};
+use super::{group_materializer::materialize, property_indexer::PropertyIndexer, VirtualDevice, VirtualDeviceSpec};
+
+/// Default debounce for structure rebuilds of a group device when the spec
+/// does not set `group.rebuild_debounce`.
+const DEFAULT_REBUILD_DEBOUNCE: Duration = Duration::from_secs(1);
+
+/// Runtime state of a materialized group device (a [`VirtualDeviceSpec`] with
+/// `group: Some(..)`). Stored by the manager so member discovery changes can
+/// trigger a debounced re-materialization (see
+/// [`VirtualDeviceManager::rebuild_group_device`]).
+struct GroupRuntime {
+    /// The original (un-materialized) spec as parsed from the config.
+    original_spec: VirtualDeviceSpec,
+    /// Structure hash of the last materialization result (rebuild gate).
+    structure_hash: u64,
+    /// Resolved member device refs (static for the lifetime of the spec).
+    member_refs: HashSet<DeviceRef>,
+    /// Per-group debouncer emitting [`AppEvent::RebuildGroupDevice`].
+    rebuild_flush: DebouncedSender<AppEvent>,
+}
 
 pub struct VirtualDeviceManagerConfig {
     pub hostname: String,
@@ -54,6 +77,12 @@ pub struct VirtualDeviceManager {
     /// True when the controller description has staged children changes that
     /// have not been published yet (see [`VirtualDeviceManager::flush_children`]).
     children_dirty: bool,
+    /// Runtime state of materialized group devices, keyed by the spec's
+    /// config item hash.
+    groups: Arc<RwLock<HashMap<ConfigItemHash, GroupRuntime>>>,
+    /// Reverse index source device -> group devices it is a member of
+    /// (O(1) rebuild trigger lookup on discovery changes).
+    member_index: Arc<RwLock<HashMap<DeviceRef, HashSet<ConfigItemHash>>>>,
 }
 
 impl VirtualDeviceManager {
@@ -108,6 +137,8 @@ impl VirtualDeviceManager {
                 pending_publishes,
                 children_flush,
                 children_dirty: false,
+                groups: Arc::new(RwLock::new(HashMap::new())),
+                member_index: Arc::new(RwLock::new(HashMap::new())),
             },
             device_client_handle,
             homie_event_receiver,
@@ -115,6 +146,21 @@ impl VirtualDeviceManager {
     }
 
     pub async fn add_device(&mut self, hash: ConfigItemHash, spec: VirtualDeviceSpec) -> Result<DeviceRef> {
+        // Group devices are materialized first: the structure is derived from
+        // the discovered member descriptions and the expanded spec then runs
+        // through the unchanged creation path below. The group runtime is
+        // registered only after the device was successfully added.
+        let mut group_ctx: Option<(VirtualDeviceSpec, u64)> = None;
+        let spec = if spec.group.is_some() {
+            let devices = self.dm.read().await;
+            let materialized = materialize(&spec, &devices, self.homie_domain());
+            drop(devices);
+            group_ctx = Some((spec, materialized.structure_hash));
+            materialized.spec
+        } else {
+            spec
+        };
+
         log::debug!("Adding virtual device: {} -- root state: {}", spec.id, self.status);
         let vdevices = self.devices.read().await;
         let device_ref = DeviceRef::new(self.homie_domain().clone(), spec.id.clone());
@@ -163,10 +209,17 @@ impl VirtualDeviceManager {
         drop(vdevices);
         drop(devices);
         self.add_child_device(vdev_ref.device_id().clone()).await?;
+        if let Some((original_spec, structure_hash)) = group_ctx {
+            self.register_group(hash, original_spec, structure_hash).await;
+        }
         Ok(vdev_ref)
     }
 
     pub async fn remove_device(&mut self, hash: ConfigItemHash) -> Result<Option<VirtualDevice>> {
+        // Unconditionally drop any group runtime for this spec: the device
+        // itself may be missing from the map (e.g. a failed rebuild), but the
+        // group bookkeeping must not outlive the config item.
+        self.unregister_group(hash).await;
         let mut vdevices = self.devices.write().await;
         let Some(id) = vdevices
             .iter()
@@ -191,6 +244,80 @@ impl VirtualDeviceManager {
 
         log::debug!("VDevice removed:{}", hash);
         Ok(None)
+    }
+
+    /// Register the runtime state of a successfully added group device:
+    /// stores the original spec + structure hash and indexes its members for
+    /// O(1) rebuild trigger lookup.
+    async fn register_group(&self, hash: ConfigItemHash, original_spec: VirtualDeviceSpec, structure_hash: u64) {
+        let Some(group) = original_spec.group.as_ref() else {
+            return;
+        };
+        let member_refs: HashSet<DeviceRef> = group
+            .devices
+            .iter()
+            .map(|id| DeviceRef::new(self.homie_domain().clone(), id.clone()))
+            .collect();
+        let rebuild_debounce = group.rebuild_debounce.unwrap_or(DEFAULT_REBUILD_DEBOUNCE);
+        let rebuild_flush = DebouncedSender::new(rebuild_debounce, self.app_event_sender.clone());
+        {
+            let mut member_index = self.member_index.write().await;
+            index_group_members(&mut member_index, hash, &member_refs);
+        }
+        self.groups.write().await.insert(
+            hash,
+            GroupRuntime {
+                original_spec,
+                structure_hash,
+                member_refs,
+                rebuild_flush,
+            },
+        );
+    }
+
+    /// Drop the group runtime and member index entries for a spec. No-op for
+    /// non-group specs (nothing registered under the hash).
+    async fn unregister_group(&self, hash: ConfigItemHash) {
+        let Some(runtime) = self.groups.write().await.remove(&hash) else {
+            return;
+        };
+        let mut member_index = self.member_index.write().await;
+        unindex_group_members(&mut member_index, hash, &runtime.member_refs);
+    }
+
+    /// Notify the manager that a source device's description changed. Fans
+    /// out a debounced [`AppEvent::RebuildGroupDevice`] to every group the
+    /// device is a member of. No-op for devices that are not group members.
+    pub async fn source_device_changed(&self, device_ref: &DeviceRef) {
+        self.trigger_group_rebuilds(device_ref).await;
+    }
+
+    /// Notify the manager that a source device was removed. Same debounced
+    /// rebuild fan-out as [`Self::source_device_changed`] -- the
+    /// re-materialization reads the current `DeviceStore` state either way.
+    pub async fn source_device_removed(&self, device_ref: &DeviceRef) {
+        self.trigger_group_rebuilds(device_ref).await;
+    }
+
+    async fn trigger_group_rebuilds(&self, device_ref: &DeviceRef) {
+        let hashes = {
+            let member_index = self.member_index.read().await;
+            affected_groups(&member_index, device_ref)
+        };
+        if hashes.is_empty() {
+            return;
+        }
+        let groups = self.groups.read().await;
+        for hash in hashes {
+            if let Some(runtime) = groups.get(&hash) {
+                log::debug!(
+                    "[group:{}] member '{}' changed -- scheduling debounced rebuild",
+                    runtime.original_spec.id,
+                    device_ref.device_id()
+                );
+                runtime.rebuild_flush.send(AppEvent::RebuildGroupDevice(hash)).await;
+            }
+        }
     }
 
     pub async fn add_child_device(&mut self, child_id: HomieID) -> Result<()> {
@@ -455,5 +582,115 @@ impl VirtualDeviceManagerProxy {
             vdev.simulate_set_command(property, value).await?;
         }
         Ok(())
+    }
+}
+
+/// Add `hash` to the member index entry of every member device.
+///
+/// Generic over the group key so the pure index logic is unit-testable
+/// ([`ConfigItemHash`] has no public constructor).
+fn index_group_members<H: Copy + Eq + std::hash::Hash>(
+    member_index: &mut HashMap<DeviceRef, HashSet<H>>,
+    hash: H,
+    member_refs: &HashSet<DeviceRef>,
+) {
+    for member in member_refs {
+        member_index.entry(member.clone()).or_default().insert(hash);
+    }
+}
+
+/// Remove `hash` from the member index entries of every member device,
+/// dropping entries that become empty.
+fn unindex_group_members<H: Copy + Eq + std::hash::Hash>(
+    member_index: &mut HashMap<DeviceRef, HashSet<H>>,
+    hash: H,
+    member_refs: &HashSet<DeviceRef>,
+) {
+    for member in member_refs {
+        if let Some(hashes) = member_index.get_mut(member) {
+            hashes.remove(&hash);
+            if hashes.is_empty() {
+                member_index.remove(member);
+            }
+        }
+    }
+}
+
+/// All groups the given source device is a member of (rebuild fan-out set).
+fn affected_groups<H: Copy + Eq + std::hash::Hash>(
+    member_index: &HashMap<DeviceRef, HashSet<H>>,
+    device_ref: &DeviceRef,
+) -> Vec<H> {
+    member_index
+        .get(device_ref)
+        .map(|hashes| hashes.iter().copied().collect())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use homie5::HomieDomain;
+
+    fn dev(id: &str) -> DeviceRef {
+        DeviceRef::new(HomieDomain::Default, id.to_string().try_into().unwrap())
+    }
+
+    fn members(ids: &[&str]) -> HashSet<DeviceRef> {
+        ids.iter().map(|id| dev(id)).collect()
+    }
+
+    #[test]
+    fn fan_out_returns_all_groups_sharing_a_member() {
+        let mut index: HashMap<DeviceRef, HashSet<u64>> = HashMap::new();
+        index_group_members(&mut index, 1u64, &members(&["dev-a", "dev-b"]));
+        index_group_members(&mut index, 2u64, &members(&["dev-b", "dev-c"]));
+
+        let mut hit = affected_groups(&index, &dev("dev-b"));
+        hit.sort_unstable();
+        assert_eq!(hit, vec![1, 2]);
+
+        assert_eq!(affected_groups(&index, &dev("dev-a")), vec![1]);
+        assert_eq!(affected_groups(&index, &dev("dev-c")), vec![2]);
+    }
+
+    #[test]
+    fn fan_out_is_empty_for_non_member_devices() {
+        let mut index: HashMap<DeviceRef, HashSet<u64>> = HashMap::new();
+        index_group_members(&mut index, 1u64, &members(&["dev-a"]));
+
+        assert!(affected_groups(&index, &dev("dev-x")).is_empty());
+        assert!(affected_groups(&HashMap::<DeviceRef, HashSet<u64>>::new(), &dev("dev-a")).is_empty());
+    }
+
+    #[test]
+    fn unindex_removes_only_own_entries_and_cleans_empty_sets() {
+        let mut index: HashMap<DeviceRef, HashSet<u64>> = HashMap::new();
+        let g1 = members(&["dev-a", "dev-b"]);
+        let g2 = members(&["dev-b", "dev-c"]);
+        index_group_members(&mut index, 1u64, &g1);
+        index_group_members(&mut index, 2u64, &g2);
+
+        unindex_group_members(&mut index, 1u64, &g1);
+
+        // dev-a entry is gone entirely, dev-b only lost group 1
+        assert!(affected_groups(&index, &dev("dev-a")).is_empty());
+        assert!(!index.contains_key(&dev("dev-a")));
+        assert_eq!(affected_groups(&index, &dev("dev-b")), vec![2]);
+        assert_eq!(affected_groups(&index, &dev("dev-c")), vec![2]);
+
+        unindex_group_members(&mut index, 2u64, &g2);
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn unindex_is_idempotent_for_unknown_groups() {
+        let mut index: HashMap<DeviceRef, HashSet<u64>> = HashMap::new();
+        let g1 = members(&["dev-a"]);
+        index_group_members(&mut index, 1u64, &g1);
+
+        // removing a never-registered group must not disturb existing entries
+        unindex_group_members(&mut index, 99u64, &g1);
+        assert_eq!(affected_groups(&index, &dev("dev-a")), vec![1]);
     }
 }

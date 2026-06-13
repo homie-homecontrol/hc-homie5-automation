@@ -26,6 +26,11 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
                 log::debug!("Published debounced children update for controller device");
             }
         }
+        AppEvent::RebuildGroupDevice(hash) => {
+            // Rebuild handling is wired up in the event loop integration phase
+            // (calls vdm.rebuild_group_device + rule query re-notification).
+            log::debug!("RebuildGroupDevice({hash}) received -- handler not wired up yet");
+        }
         AppEvent::Exit => {
             // Stop configuration watchers
             state.rule_watcher_handle.stop().await?;

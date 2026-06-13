@@ -1,4 +1,4 @@
-use config_watcher::ConfigItemWatcherHandle;
+use config_watcher::{ConfigItemHash, ConfigItemWatcherHandle};
 pub use hc_homie5::connection::{ConnectionEvent, ConnectionState};
 use hc_homie5::controller::MetaOverlayHandler;
 use homie5::{DeviceRef, PropertyRef};
@@ -20,6 +20,9 @@ pub enum AppEvent {
     /// Publish a pending (debounced) children update of the controller
     /// device description (see [`VirtualDeviceManager::flush_children`]).
     FlushControllerChildren,
+    /// Rebuild a materialized group device after member discovery changes
+    /// (debounced per group, see [`VirtualDeviceManager::rebuild_group_device`]).
+    RebuildGroupDevice(ConfigItemHash),
 
     Exit,
 }
