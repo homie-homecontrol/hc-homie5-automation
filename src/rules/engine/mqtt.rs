@@ -75,26 +75,95 @@ pub async fn unsubscribe_mqtt_trigger(rule: &Rule, mqtt_client: &ManagedMqttClie
     }
     Ok(())
 }
+/// Matches an MQTT topic against a topic filter following the MQTT spec
+/// wildcard rules:
+///
+/// - `+` matches exactly one topic level.
+/// - `#` is the multi-level wildcard. It must be the last level of the filter
+///   and matches the parent level as well as any number of child levels
+///   (e.g. `a/b/#` matches `a/b`, `a/b/c` and `a/b/c/d`).
+/// - Without wildcards the filter and topic must match level-for-level
+///   (including having the same number of levels).
+///
+/// Unlike a naive `zip`, a filter that is longer than the topic (and does not
+/// end in `#`) correctly returns `false` instead of matching on the truncated
+/// prefix.
 pub fn mqtt_topic_match(filter: &str, topic: &str) -> bool {
-    // Quick return for exact matches
+    // Fast path for exact matches.
     if filter == topic {
         return true;
     }
 
-    // Split filter and topic into parts
-    let filter_parts = filter.split('/');
-    let topic_parts = topic.split('/');
+    let filter_parts: Vec<&str> = filter.split('/').collect();
+    let topic_parts: Vec<&str> = topic.split('/').collect();
 
-    // Iterate through both parts simultaneously
-    for (filter_part, topic_part) in filter_parts.zip(topic_parts) {
-        if filter_part == "#" {
-            return true; // Match any remaining parts
+    let mut i = 0;
+    loop {
+        // Multi-level wildcard: `#` must be the last filter level and matches
+        // the parent level plus any (including zero) remaining topic levels.
+        // `a/b/#` (i == 2) matches a topic with >= 2 levels.
+        if i < filter_parts.len() && filter_parts[i] == "#" {
+            return topic_parts.len() >= i;
         }
-        if filter_part != "+" && filter_part != topic_part {
-            return false; // Mismatch
+
+        // Topic exhausted: only a match if the filter is exhausted too.
+        if i >= topic_parts.len() {
+            return i >= filter_parts.len();
+        }
+
+        // Topic still has levels but the filter is exhausted: no match.
+        if i >= filter_parts.len() {
+            return false;
+        }
+
+        let f = filter_parts[i];
+        let t = topic_parts[i];
+        // `+` matches exactly one level; otherwise levels must be equal.
+        if f != "+" && f != t {
+            return false;
+        }
+
+        i += 1;
+    }
+}
+
+#[cfg(test)]
+mod topic_match_tests {
+    use super::mqtt_topic_match;
+
+    #[test]
+    fn table_driven_topic_match() {
+        // (filter, topic, expected)
+        let cases = [
+            // exact matches
+            ("a/b", "a/b", true),
+            ("a/b/c", "a/b/c", true),
+            // multi-level wildcard matches parent and children
+            ("a/b/#", "a/b", true),
+            ("a/b/#", "a/b/c", true),
+            ("a/b/#", "a/b/c/d", true),
+            ("#", "a", true),
+            ("#", "a/b/c", true),
+            // multi-level wildcard does not match a divergent prefix
+            ("a/b/#", "a/x", false),
+            ("a/b/#", "a", false),
+            // single-level wildcard
+            ("a/+/c", "a/b/c", true),
+            ("a/+/c", "a/c", false),
+            ("a/+/c", "a/b/d/c", false),
+            ("a/+", "a/b", true),
+            ("a/+", "a/b/c", false),
+            // level-count mismatches (the zip-truncation bug)
+            ("a/b", "a", false),
+            ("a/b", "a/b/c", false),
+            ("a/b/c", "a/b", false),
+            ("a", "a/b", false),
+            // non-matching levels
+            ("a/b", "x/y", false),
+        ];
+
+        for (filter, topic, expected) in cases {
+            assert_eq!(mqtt_topic_match(filter, topic), expected, "filter={:?} topic={:?}", filter, topic);
         }
     }
-
-    // Ensure both filter and topic are fully matched
-    filter.split('/').count() == topic.split('/').count()
 }

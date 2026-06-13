@@ -21,6 +21,26 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
                     .queries_virtual_device_updated(&device_ref, vdev.description());
             }
         }
+        AppEvent::FlushControllerChildren => {
+            if state.vdm.flush_children().await? {
+                log::debug!("Published debounced children update for controller device");
+            }
+        }
+        AppEvent::RebuildGroupDevice(hash) => {
+            // Debounced rebuild of a materialized group device after member
+            // discovery changes. When the structure actually changed (the
+            // rebuild was not gated away), re-notify rule queries with the
+            // new description so materialized queries pick up added/removed
+            // nodes and properties.
+            if let Some(device_ref) = state.vdm.rebuild_group_device(hash).await? {
+                let vdevices = state.vdm.read().await;
+                if let Some(vdev) = vdevices.get(&device_ref) {
+                    state
+                        .rules
+                        .queries_virtual_device_updated(&device_ref, vdev.description());
+                }
+            }
+        }
         AppEvent::Exit => {
             // Stop configuration watchers
             state.rule_watcher_handle.stop().await?;
@@ -30,13 +50,31 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
 
             // stop discovery and send disconnect signal for all devices
             state.dm.stop_discover().await?;
+            // publish any staged (debounced) children changes so the retained
+            // controller description is complete before disconnecting
+            state.vdm.flush_children().await?;
             state.vdm.disconnect_virtual_devices().await?;
             state.vdm.disconnect_device().await?;
 
-            // wait a second to give mqtt the change to publish the disconnect states properly
-            // TODO: Find a solution that does not rely on some arbitrary number of seconds of wait
-            // time
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            // Deterministic shutdown: wait until the broker has acknowledged
+            // all in-flight publishes (incl. the `$state = disconnected`
+            // messages above) on all three connections before disconnecting.
+            // After a clean DISCONNECT the broker discards the LWT, so the
+            // ack guarantee is what keeps retained `$state` from ending up
+            // as `lost`. A flush returns immediately when nothing is
+            // pending; FLUSH_MAX_WAIT only bounds the dead-broker case — in
+            // that case we log and proceed so shutdown can never hang.
+            const FLUSH_MAX_WAIT: Duration = Duration::from_secs(5);
+            if let Err(err) = state.vdm.flush(FLUSH_MAX_WAIT).await {
+                log::warn!("Shutdown: flushing virtual device connection failed: {err}");
+            }
+            if let Err(err) = state.dm.flush(FLUSH_MAX_WAIT).await {
+                log::warn!("Shutdown: flushing discovery/controller connection failed: {err}");
+            }
+            if let Err(err) = state.mqtt_client.flush(FLUSH_MAX_WAIT).await {
+                log::warn!("Shutdown: flushing mqtt client connection failed: {err}");
+            }
+
             // disconnect all the clients
             state.dm.disconnect_client().await?;
             state.vdm.disconnect_client().await?;
@@ -51,7 +89,12 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
             state.cron.clear();
 
             // exit
+            // All publishes are flushed and all clients cleanly disconnected
+            // above — there is nothing left worth draining from the event
+            // channels, so request immediate loop exit instead of waiting for
+            // the multiplexer's drain timeout.
             state.should_exit = true;
+            return Ok(true);
         }
     }
     Ok(false)

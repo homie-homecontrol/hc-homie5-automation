@@ -588,11 +588,14 @@ The Run action runs a script with optional timer settings.
 
 Available fields are:
 
-| Attribute | Type              | Description                                                                                     |
-| --------- | ----------------- | ----------------------------------------------------------------------------------------------- |
-| `type`    | "run"             | Defines the action type                                                                         |
-| `script`  | `lua source code` | The lua code to be executed when the rule is triggered. See "Lua Runtime" for more information. |
-| `timer`   | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details   |
+| Attribute        | Type              | Description                                                                                                                                              |
+| ---------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`           | "run"             | Defines the action type                                                                                                                                  |
+| `script`         | `lua source code` | The lua code to be executed when the rule is triggered. See "Lua Runtime" for more information.                                                          |
+| `timer`          | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details                                                            |
+| `script_timeout` | `duration string` | Optional execution budget for this script (e.g. `500ms`, `10s`). Overrides the global default (`HCACTL_LUA_SCRIPT_TIMEOUT`, 5s if unset).               |
+
+> Note: script execution is bounded by an execution budget (global default `HCACTL_LUA_SCRIPT_TIMEOUT`, 5s if unset; per-action override via `script_timeout`). A script exceeding its budget is cancelled — this also covers CPU-bound endless loops (`while true do end`) — and the action fails with an error naming the rule; subsequent actions and events continue normally.
 
 ### Example 1:
 

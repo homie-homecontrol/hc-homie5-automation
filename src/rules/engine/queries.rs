@@ -41,29 +41,3 @@ pub fn queries_init_materialized(rule: &mut Rule, devices: &DeviceStore, vd: &Ha
         }
     }
 }
-// pub fn queries_remove_init_materialized(rule: &mut Rule, devices: &DeviceStore) {
-//     for trigger in rule.trigger.iter_mut() {
-//         match trigger {
-//             crate::rules::RuleTrigger::PropertyTriggered { ref mut queries, .. } => {
-//                 for query in queries.iter_mut() {
-//                     for (domain, id, device) in devices.iter() {
-//                         if let Some(desc) = device.description.as_ref() {
-//                             query.remove_materialized(domain, id, desc);
-//                         }
-//                     }
-//                 }
-//             }
-//             crate::rules::RuleTrigger::PropertyChanged { ref mut queries, .. } => {
-//                 for query in queries.iter_mut() {
-//                     for (domain, id, device) in devices.iter() {
-//                         if let Some(desc) = device.description.as_ref() {
-//                             query.remove_materialized(domain, id, desc);
-//                         }
-//                     }
-//                 }
-//             }
-//
-//             _ => {}
-//         }
-//     }
-// }

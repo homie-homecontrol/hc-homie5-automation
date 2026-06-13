@@ -4,11 +4,11 @@ use hc_homie5::device::HomieDeviceCore;
 use homie5::HomieID;
 use mlua::{ExternalResult, LuaSerdeExt, UserData};
 
-pub struct LuaVirtualDecvice {
+pub struct LuaVirtualDevice {
     pub vdm: VirtualDeviceManagerProxy,
 }
 
-impl UserData for LuaVirtualDecvice {
+impl UserData for LuaVirtualDevice {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method(
             "set_str_value",

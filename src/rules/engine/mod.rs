@@ -33,4 +33,7 @@ pub struct RuleContext<'a> {
     pub mqtt_client: &'a ManagedMqttClient,
     pub value_store: &'a KeyValueStore,
     pub lmm: &'a LuaModuleManager,
+    /// Global default execution budget for Lua `run` script actions.
+    /// A per-action `script_timeout` on the `run` action overrides this.
+    pub lua_script_timeout: std::time::Duration,
 }

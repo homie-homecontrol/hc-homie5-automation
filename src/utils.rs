@@ -11,7 +11,7 @@ use tokio::{
 /// The function spawns a background task and automatically shuts down when the
 /// original sender is dropped.
 pub fn throttle_channel<T: Send + 'static>(mut input_rx: mpsc::Receiver<T>, delay: Duration) -> mpsc::Receiver<T> {
-    let (throttled_tx, throttled_rx) = mpsc::channel(65535);
+    let (throttled_tx, throttled_rx) = mpsc::channel(1024);
 
     tokio::spawn(async move {
         let mut last_sent = Instant::now();

@@ -58,7 +58,7 @@ impl VirtualProperty {
         app_event_sender: mpsc::Sender<AppEvent>,
     ) -> Result<Self> {
         let mut prop_compound_members: PropertyCompoundMembers = HashMap::new();
-        let mut mqtt_compoung_members = HashMap::new();
+        let mut mqtt_compound_members = HashMap::new();
         let mut query_compound_members = Vec::new();
         let mut value = None;
         let mut has_queries = false;
@@ -95,7 +95,7 @@ impl VirtualProperty {
                             output: output.clone(),
                         };
                         mqtt_client.subscribe(&topic, rumqttc::QoS::ExactlyOnce).await?;
-                        mqtt_compoung_members.insert(topic.clone(), m);
+                        mqtt_compound_members.insert(topic.clone(), m);
                     }
                     MemberSpec::QueryMember { query, mapping } => {
                         query_compound_members.push(QueryCompoundMember::new(
@@ -114,10 +114,10 @@ impl VirtualProperty {
                     .values()
                     .chain(query_compound_members.iter().flat_map(|qcm| qcm.values()))
                     .unique_by(|v| &v.prop),
-                &mqtt_compoung_members,
+                &mqtt_compound_members,
                 datatype,
                 devices,
-                compound_spec.aggregate_function,
+                compound_spec.aggregate_function.unwrap_or_default(),
             );
             log::debug!("{} -- Property value: {:?}", prop_ref.to_topic().build(), value);
 
@@ -136,7 +136,7 @@ impl VirtualProperty {
 
         // check if we have options defined, otherwise take them from the node or if this also
         // is not defined use the default
-        let options = if let Some(options) = spec.propert_opts {
+        let options = if let Some(options) = spec.property_opts {
             options
         } else if let Some(node_options) = node_prop_opts {
             node_options.clone()
@@ -165,7 +165,7 @@ impl VirtualProperty {
             value,
             compound_spec: spec.compound_spec,
             prop_compound_members,
-            mqtt_compound_members: mqtt_compoung_members,
+            mqtt_compound_members,
             query_compound_members,
             has_queries,
             debouncer,
@@ -173,22 +173,19 @@ impl VirtualProperty {
         })
     }
 
-    pub async fn update_compound_members_removed(
-        &mut self,
-        device_ref: &DeviceRef,
-        // devices: &DeviceStore,
-        // homie_client: &HomieMQTTClient,
-        // homie_proto: &Homie5DeviceProtocol,
-    ) -> Result<bool> {
+    pub async fn update_compound_members_removed(&mut self, device_ref: &DeviceRef) -> Result<bool> {
         let mut changed = false;
-        self.prop_compound_members.retain(|k, _| {
-            if k.device_ref() == device_ref {
-                changed = true;
-                return false;
-            }
-            true
-        });
 
+        // Do NOT remove direct property compound members — they are fixed references
+        // defined in config. The aggregate function already excludes members from
+        // non-Ready devices at evaluation time (via device_state_resolved check).
+        // Keeping them ensures they automatically recover when the device reappears.
+        if self.prop_compound_members.keys().any(|k| k.device_ref() == device_ref) {
+            changed = true;
+        }
+
+        // Query members are dynamic — remove the ones belonging to the removed device.
+        // They will be re-added when the device is rediscovered via update_compound_members.
         for qcm in self.query_compound_members.iter_mut() {
             if qcm.update_compound_members_removed(device_ref) {
                 changed = true;
@@ -196,7 +193,6 @@ impl VirtualProperty {
         }
 
         if changed {
-            // self.update_value(devices, homie_client, homie_proto).await?;
             self.trigger_value_recalculation().await;
         }
         Ok(changed)
@@ -210,22 +206,20 @@ impl VirtualProperty {
         device_ref: &DeviceRef,
         desc: &HomieDeviceDescription,
         devices: &DeviceStore,
-        // homie_client: &HomieMQTTClient,
-        // homie_proto: &Homie5DeviceProtocol,
     ) -> Result<bool> {
-        if !self.has_queries {
-            return Ok(false);
-        }
         let Some(compound_spec) = &self.compound_spec else {
             return Ok(false);
         };
 
         if device_ref == self.prop_ref.device_ref() && desc.with_property(&self.prop_ref, |_| true).unwrap_or(false) {
-            // do not include self in queries
+            // do not include self in queries or settable updates
             return Ok(false);
         }
 
-        // update settable flag for property compound members
+        // Always update settable flag for direct property compound members,
+        // even if this property has no query members. The settable flag may have
+        // been initialized to the default (false) if the member device was not
+        // yet discovered when this virtual property was created.
         for (node_id, _, prop_id, prop_desc) in desc.iter() {
             for (prop_ref, pcm) in self.prop_compound_members.iter_mut() {
                 if prop_ref.belongs_to_device(device_ref)
@@ -237,6 +231,11 @@ impl VirtualProperty {
             }
         }
 
+        // Query member re-evaluation only needed if we have query members
+        if !self.has_queries {
+            return Ok(false);
+        }
+
         let mut changed = false;
         for qcm in self.query_compound_members.iter_mut() {
             if qcm.update_compound_members(device_ref, desc, devices, compound_spec.mapping.as_ref()) {
@@ -245,7 +244,6 @@ impl VirtualProperty {
         }
 
         if changed {
-            // self.update_value(devices, homie_client, homie_proto).await?;
             self.trigger_value_recalculation().await;
         }
 
@@ -315,7 +313,11 @@ impl VirtualProperty {
         homie_client: &HomieMQTTClient,
         homie_proto: &Homie5DeviceProtocol,
     ) -> Result<(), eyre::Error> {
-        if let Some(aggr_func) = self.compound_spec.as_ref().map(|f| f.aggregate_function) {
+        if let Some(aggr_func) = self
+            .compound_spec
+            .as_ref()
+            .map(|f| f.aggregate_function.unwrap_or_default())
+        {
             let value = update_compound_value(
                 self.compound_properties(),
                 &self.mqtt_compound_members,
@@ -391,7 +393,7 @@ impl VirtualProperty {
         }
         for (prop_ref, member) in self.prop_compound_members.iter().filter(|(_, pcm)| pcm.settable) {
             let p = if let Some(mapping) = &member.mapping {
-                ctrl_proto.set_command(prop_ref, mapping.map_ouput(&value).unwrap())
+                ctrl_proto.set_command(prop_ref, mapping.map_output(&value).unwrap())
             } else {
                 ctrl_proto.set_command(prop_ref, &value)
             };
@@ -440,18 +442,6 @@ impl VirtualProperty {
             timeout,
         )
         .await;
-        // let handle = tokio::task::spawn(async move {
-        //     log::debug!(
-        //         "{} - schedule cancel task for value read from mqtt: {:?}",
-        //         prop_ref_task.to_topic().build(),
-        //         timeout
-        //     );
-        //     tokio::time::sleep(timeout).await;
-        //     app_event_sender
-        //         .send(AppEvent::CancelPropertyValueReadFromMqtt(prop_ref_task))
-        //         .await?;
-        //     Ok::<(), eyre::Error>(())
-        // });
         Ok(ds)
     }
 

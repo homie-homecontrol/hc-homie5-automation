@@ -1,4 +1,4 @@
-use config_watcher::ConfigItemWatcherHandle;
+use config_watcher::{ConfigItemHash, ConfigItemWatcherHandle};
 pub use hc_homie5::connection::{ConnectionEvent, ConnectionState};
 use hc_homie5::controller::MetaOverlayHandler;
 use homie5::{DeviceRef, PropertyRef};
@@ -11,12 +11,18 @@ use crate::{
     timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AppEvent {
     // Tasks
     RecalculateVirtualPropertyValue(PropertyRef),
     CancelPropertyValueReadFromMqtt(PropertyRef),
     UpdateVirtualDevicesQueries(DeviceRef),
+    /// Publish a pending (debounced) children update of the controller
+    /// device description (see [`VirtualDeviceManager::flush_children`]).
+    FlushControllerChildren,
+    /// Rebuild a materialized group device after member discovery changes
+    /// (debounced per group, see [`VirtualDeviceManager::rebuild_group_device`]).
+    RebuildGroupDevice(ConfigItemHash),
 
     Exit,
 }
@@ -41,6 +47,9 @@ pub struct AppState {
     pub virtual_devices_watcher_handle: ConfigItemWatcherHandle,
     pub meta_watcher_handle: ConfigItemWatcherHandle,
     pub lua_files_watcher_handle: ConfigItemWatcherHandle,
+    /// Global default execution budget for Lua `run` script actions
+    /// (a per-action `script_timeout` on the `run` action overrides it).
+    pub lua_script_timeout: std::time::Duration,
 }
 
 impl AppState {
@@ -53,6 +62,7 @@ impl AppState {
             mqtt_client: &self.mqtt_client,
             value_store: &self.value_store,
             lmm: &self.lua_module_manager,
+            lua_script_timeout: self.lua_script_timeout,
         }
     }
 

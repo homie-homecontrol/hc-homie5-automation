@@ -2,9 +2,10 @@ use color_eyre::eyre::{self, eyre};
 use homie5::{HomieDomain, HomieID};
 use once_cell::sync::Lazy;
 use simple_kv_store::KubernetesResource;
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, time::Duration};
 
 use hc_homie5::settings::{self, HomieSettings};
+use hc_homie5_automation::rules::parse_duration;
 use hc_homie5_automation::virtual_devices::VirtualDeviceManagerConfig;
 
 // pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| env!("CARGO_CRATE_NAME").replace('-', "_").to_uppercase());
@@ -12,7 +13,16 @@ pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| "HCACTL".to_string());
 
 pub static SETTINGS: Lazy<Settings> = Lazy::new(Settings::default);
 
-pub const CHANNEL_CAPACITY: usize = 65535;
+// Large enough for normal bursts, small enough to expose backpressure instead of hiding stalls.
+pub const CHANNEL_CAPACITY: usize = 1024;
+/// Keepalive for the virtual-device Homie MQTT client. A longer interval gives
+/// large QoS>0 publish bursts more time to drain before rumqttc's collision
+/// watchdog trips.
+pub const KEEP_ALIVE_SECS: u64 = 30;
+/// Raised inflight window for the virtual-device Homie MQTT client. This
+/// matches the bridge crates and avoids rumqttc packet-id collisions during
+/// reconnect/full-republish bursts of QoS2 Homie messages.
+pub const MAX_INFLIGHT_MSGS: u16 = 16384;
 
 #[derive(Debug)]
 pub struct Settings {
@@ -37,6 +47,27 @@ pub struct AppSettings {
     pub lua_files_config: ConfigBackend,
     pub value_store_config: ValueStoreConfig,
     pub location: LocationConfig,
+    /// Global execution budget for Lua `run` script actions. Individual `run`
+    /// actions can override it via `script_timeout`. Default: 5s.
+    pub lua_script_timeout: Duration,
+    /// Debounce window for controller children updates. Bursts of virtual
+    /// device creations/removals republish the controller description only
+    /// once per quiet period. `0` disables debouncing (publish immediately).
+    /// Default: 200ms.
+    pub controller_children_debounce: Duration,
+}
+
+/// Newtype so a duration string setting (e.g. `5s`, `500ms`) can be parsed
+/// via [`settings::generic_setting`] (which requires `TryFrom<String>`).
+#[derive(Debug, Clone, Copy)]
+pub struct DurationSetting(pub Duration);
+
+impl TryFrom<String> for DurationSetting {
+    type Error = eyre::Report;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        parse_duration(&value).map(DurationSetting).map_err(|err| eyre!(err))
+    }
 }
 
 /// - `latitude`: Latitude for the solar calculation.
@@ -99,7 +130,7 @@ pub enum ValueStoreConfig {
     Kubernetes {
         name: String,
         namespace: String,
-        ressource_type: KubernetesResource,
+        resource_type: KubernetesResource,
     },
     Sqlite {
         path: String,
@@ -120,7 +151,7 @@ impl TryFrom<String> for ValueStoreConfig {
             }),
             "kubernetes" if parts.len() >= 2 => {
                 let kube_parts: Vec<&str> = parts[1].splitn(3, ',').collect();
-                let ressource_type = match kube_parts[0] {
+                let resource_type = match kube_parts[0] {
                     "secret" => KubernetesResource::Secret,
                     "configmap" => KubernetesResource::ConfigMap,
                     _ => KubernetesResource::ConfigMap,
@@ -134,7 +165,7 @@ impl TryFrom<String> for ValueStoreConfig {
                 Ok(ValueStoreConfig::Kubernetes {
                     name,
                     namespace,
-                    ressource_type,
+                    resource_type,
                 })
             }
             _ => {
@@ -216,11 +247,23 @@ impl Default for AppSettings {
                     elevation: 0f64,
                 },
             ),
+            lua_script_timeout: settings::generic_setting(
+                &ENV_PREFIX,
+                "LUA_SCRIPT_TIMEOUT",
+                DurationSetting(Duration::from_secs(5)),
+            )
+            .0,
+            controller_children_debounce: settings::generic_setting(
+                &ENV_PREFIX,
+                "CONTROLLER_CHILDREN_DEBOUNCE",
+                DurationSetting(Duration::from_millis(200)),
+            )
+            .0,
         }
     }
 }
 
-pub fn vdm_config_from_homie(settings: &HomieSettings) -> VirtualDeviceManagerConfig {
+pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> VirtualDeviceManagerConfig {
     VirtualDeviceManagerConfig {
         hostname: settings.hostname.clone(),
         port: settings.port,
@@ -236,5 +279,9 @@ pub fn vdm_config_from_homie(settings: &HomieSettings) -> VirtualDeviceManagerCo
             .controller_name
             .clone()
             .unwrap_or_else(|| "Homecontrol Automation Controller".to_string()),
+        controller_children_debounce: (!app.controller_children_debounce.is_zero())
+            .then_some(app.controller_children_debounce),
+        keep_alive_secs: KEEP_ALIVE_SECS,
+        max_inflight_msgs: MAX_INFLIGHT_MSGS,
     }
 }

@@ -49,7 +49,99 @@ pub struct VirtualDeviceSpec {
     pub parent: Option<HomieID>,
     #[serde(default = "serde_default_list")]
     pub extensions: Vec<String>,
+    /// When set, the device structure (nodes/properties/compounds) is
+    /// auto-materialized from the discovered descriptions of the listed
+    /// member devices. `nodes` then acts as an overlay (patch/extend/exclude).
+    pub group: Option<GroupSpec>,
+    #[serde(default = "serde_default_list")]
     pub nodes: Vec<VirtualNodeSpec>,
+}
+
+/// Configuration for an auto-materialized group device.
+///
+/// All nodes and properties of the listed member devices are unioned into
+/// this virtual device. Properties with the same node/property ID across
+/// members are combined into a single compound property whose members are
+/// the source properties. Descriptions are merged (widest number range,
+/// union of enum/color values, settable OR) and aggregate functions default
+/// by datatype (bool -> or, integer/float -> avg, everything else -> equal).
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct GroupSpec {
+    /// Member devices (device IDs in the configured homie domain).
+    /// List order defines priority for conflict resolution (first wins).
+    pub devices: Vec<HomieID>,
+    /// Default aggregation debounce applied to every generated compound with
+    /// a non-`equal` aggregate function. No debounce when unset.
+    #[serde(deserialize_with = "deserialize_optional_duration", default)]
+    pub aggregation_debounce: Option<Duration>,
+    /// Entries of the form `"node-id"` or `"node-id/prop-id"` that are
+    /// excluded from auto-generation.
+    #[serde(default)]
+    pub exclude: Vec<GroupExclude>,
+    /// Debounce for structure rebuilds triggered by discovery changes of
+    /// member devices. Defaults to 1s when unset.
+    #[serde(deserialize_with = "deserialize_optional_duration", default)]
+    pub rebuild_debounce: Option<Duration>,
+}
+
+/// A node or node/property exclusion entry of a [`GroupSpec`].
+///
+/// Parsed from a string: `"node-id"` excludes a whole node,
+/// `"node-id/prop-id"` excludes a single property.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupExclude {
+    pub node: HomieID,
+    pub property: Option<HomieID>,
+}
+
+impl GroupExclude {
+    /// True when the whole node is excluded.
+    pub fn excludes_node(&self, node_id: &HomieID) -> bool {
+        self.property.is_none() && &self.node == node_id
+    }
+
+    /// True when this entry excludes the given property (either via a
+    /// node-level exclusion or an exact node/property match).
+    pub fn excludes_property(&self, node_id: &HomieID, prop_id: &HomieID) -> bool {
+        &self.node == node_id && self.property.as_ref().is_none_or(|p| p == prop_id)
+    }
+}
+
+impl std::str::FromStr for GroupExclude {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split('/');
+        let node = parts
+            .next()
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| format!("Invalid group exclude entry '{}': missing node id", s))?;
+        let property = parts.next();
+        if parts.next().is_some() {
+            return Err(format!("Invalid group exclude entry '{}': expected 'node-id' or 'node-id/prop-id'", s));
+        }
+        let node = node
+            .parse::<HomieID>()
+            .map_err(|e| format!("Invalid group exclude entry '{}': invalid node id: {}", s, e))?;
+        let property = property
+            .map(|p| {
+                p.parse::<HomieID>()
+                    .map_err(|e| format!("Invalid group exclude entry '{}': invalid property id: {}", s, e))
+            })
+            .transpose()?;
+        Ok(Self { node, property })
+    }
+}
+
+impl<'de> Deserialize<'de> for GroupExclude {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -61,6 +153,10 @@ pub struct VirtualNodeSpec {
     pub from_smarthome: Option<SmarthomeSpec>,
     pub pass_through: Option<bool>,
     pub property_opts: Option<VirtualPropertyOptions>,
+    /// Overlay-only flag for group devices: when true, the auto-generated
+    /// node with this ID is removed. Ignored (with a warning) on non-group
+    /// devices.
+    pub exclude: Option<bool>,
     #[serde(default = "serde_default_list")]
     pub properties: Vec<VirtualPropertySpec>,
 }
@@ -171,6 +267,10 @@ pub struct VirtualPropertySpec {
     pub unit: Option<String>,
     pub pass_through: Option<bool>,
     pub property_opts: Option<VirtualPropertyOptions>,
+    /// Overlay-only flag for group devices: when true, the auto-generated
+    /// property with this ID is removed. Ignored (with a warning) on
+    /// non-group devices.
+    pub exclude: Option<bool>,
     pub compound_spec: Option<CompoundSpec>,
 }
 
@@ -189,7 +289,7 @@ impl VirtualPropertySpec {
         // Create VirtualPropertyConfig from config-specific fields
         let config = VirtualPropertyConfig {
             pass_through: self.pass_through,
-            propert_opts: self.property_opts,
+            property_opts: self.property_opts,
             compound_spec: self.compound_spec,
         };
 
@@ -248,7 +348,7 @@ impl From<VirtualPropertyDescription> for HomiePropertyDescription {
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct VirtualPropertyConfig {
     pub pass_through: Option<bool>,
-    pub propert_opts: Option<VirtualPropertyOptions>,
+    pub property_opts: Option<VirtualPropertyOptions>,
     pub compound_spec: Option<CompoundSpec>,
 }
 
@@ -265,10 +365,14 @@ pub struct VirtualPropertyOptions {
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CompoundSpec {
+    /// May be empty in a group-device overlay (the generated members are
+    /// kept); a non-group compound without members is simply inert.
+    #[serde(default)]
     pub members: Vec<MemberSpec>,
     pub mapping: Option<ValueMappingIO<HomieValue, HomieValue>>,
-    #[serde(default)]
-    pub aggregate_function: AggregateFunctionType,
+    /// `None` means "not specified": defaults to `equal` at evaluation time
+    /// and keeps the generated aggregate when used as a group-device overlay.
+    pub aggregate_function: Option<AggregateFunctionType>,
     #[serde(deserialize_with = "deserialize_optional_duration", default)]
     pub aggregation_debounce: Option<Duration>,
 }
@@ -318,4 +422,298 @@ pub enum AggregateFunctionType {
     AvgCeil,
     Max,
     Min,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(yaml: &str) -> Result<VirtualDeviceSpec, serde_yaml_ng::Error> {
+        serde_yaml_ng::from_str::<VirtualDeviceSpec>(yaml)
+    }
+
+    #[test]
+    fn legacy_spec_without_group_parses_unchanged() {
+        let spec = parse(
+            r#"
+id: wz-lights
+name: Lights Wohnzimmer
+nodes:
+  - id: switch
+    from_smarthome:
+      type: switch
+      config:
+        settable: true
+    properties:
+      - id: state
+        compound_spec:
+          members:
+            - group-1/switch/state
+          aggregate_function: or
+          aggregation_debounce: 150ms
+"#,
+        )
+        .expect("legacy spec must parse");
+        assert!(spec.group.is_none());
+        assert_eq!(spec.nodes.len(), 1);
+        assert_eq!(spec.nodes[0].properties.len(), 1);
+        assert!(spec.nodes[0].exclude.is_none());
+        assert!(spec.nodes[0].properties[0].exclude.is_none());
+    }
+
+    #[test]
+    fn group_spec_minimal() {
+        let spec = parse(
+            r#"
+id: my-group
+name: My Group
+group:
+  devices:
+    - dev-a
+    - dev-b
+"#,
+        )
+        .expect("minimal group spec must parse");
+        let group = spec.group.expect("group must be set");
+        assert_eq!(group.devices, vec!["dev-a".parse::<HomieID>().unwrap(), "dev-b".parse::<HomieID>().unwrap()]);
+        assert!(group.aggregation_debounce.is_none());
+        assert!(group.rebuild_debounce.is_none());
+        assert!(group.exclude.is_empty());
+        // nodes are optional for group devices
+        assert!(spec.nodes.is_empty());
+    }
+
+    #[test]
+    fn group_spec_full() {
+        let spec = parse(
+            r#"
+id: my-group
+group:
+  devices:
+    - dev-a
+  aggregation_debounce: 150ms
+  rebuild_debounce: 2s
+  exclude:
+    - color
+    - switch/action
+nodes:
+  - id: switch
+    properties:
+      - id: action
+        format: toggle
+  - id: color
+    exclude: true
+    properties: []
+  - id: level
+    properties:
+      - id: action
+        exclude: true
+"#,
+        )
+        .expect("full group spec must parse");
+        let group = spec.group.expect("group must be set");
+        assert_eq!(group.aggregation_debounce, Some(Duration::from_millis(150)));
+        assert_eq!(group.rebuild_debounce, Some(Duration::from_secs(2)));
+        assert_eq!(group.exclude.len(), 2);
+        assert_eq!(group.exclude[0].node, "color".parse::<HomieID>().unwrap());
+        assert!(group.exclude[0].property.is_none());
+        assert_eq!(group.exclude[1].node, "switch".parse::<HomieID>().unwrap());
+        assert_eq!(group.exclude[1].property, Some("action".parse::<HomieID>().unwrap()));
+        assert_eq!(spec.nodes[1].exclude, Some(true));
+        assert_eq!(spec.nodes[2].properties[0].exclude, Some(true));
+    }
+
+    /// The "Device Groups" example from docs/virtual_devices.md must parse.
+    #[test]
+    fn group_spec_docs_example() {
+        let spec = parse(
+            r#"
+id: wz-stehlampe-papier
+name: Stehlampe Papier
+group:
+    devices:
+        - dev-ec-1b-bd-ff-fe-6c-f0-5b
+        - dev-ec-1b-bd-ff-fe-31-77-a3
+        - dev-ec-1b-bd-ff-fe-71-39-88
+    aggregation_debounce: 150ms
+nodes:
+    - id: switch
+      properties:
+          - id: action
+            format: toggle
+"#,
+        )
+        .expect("docs group example must parse");
+        let group = spec.group.expect("group must be set");
+        assert_eq!(group.devices.len(), 3);
+        assert_eq!(group.aggregation_debounce, Some(Duration::from_millis(150)));
+        assert_eq!(spec.nodes.len(), 1);
+        assert_eq!(spec.nodes[0].properties[0].format.as_deref(), Some("toggle"));
+    }
+
+    #[test]
+    fn group_exclude_matching() {
+        let node_exclude: GroupExclude = "color".parse().unwrap();
+        let prop_exclude: GroupExclude = "switch/action".parse().unwrap();
+
+        let color = "color".parse::<HomieID>().unwrap();
+        let switch = "switch".parse::<HomieID>().unwrap();
+        let action = "action".parse::<HomieID>().unwrap();
+        let state = "state".parse::<HomieID>().unwrap();
+
+        assert!(node_exclude.excludes_node(&color));
+        assert!(!node_exclude.excludes_node(&switch));
+        // node-level exclusion also excludes all properties of the node
+        assert!(node_exclude.excludes_property(&color, &action));
+
+        assert!(!prop_exclude.excludes_node(&switch));
+        assert!(prop_exclude.excludes_property(&switch, &action));
+        assert!(!prop_exclude.excludes_property(&switch, &state));
+        assert!(!prop_exclude.excludes_property(&color, &action));
+    }
+
+    #[test]
+    fn group_exclude_invalid_forms_are_rejected() {
+        assert!("".parse::<GroupExclude>().is_err());
+        assert!("a/b/c".parse::<GroupExclude>().is_err());
+        assert!("Invalid-Upper".parse::<GroupExclude>().is_err());
+        assert!("node/Invalid-Upper".parse::<GroupExclude>().is_err());
+
+        // through serde as well
+        let res = parse(
+            r#"
+id: my-group
+group:
+  devices: [dev-a]
+  exclude:
+    - a/b/c
+"#,
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn group_spec_unknown_fields_are_rejected() {
+        let res = parse(
+            r#"
+id: my-group
+group:
+  devices: [dev-a]
+  not-a-field: true
+"#,
+        );
+        assert!(res.is_err());
+    }
+
+    /// The canonical `{ Bool: x }` map form must parse in EVERY HomieValue
+    /// mapping context, regardless of whether the field is deserialized on
+    /// serde's direct path (top-level `compound_spec.mapping` `to:`) or
+    /// buffered through `Content` (everything inside the untagged
+    /// `MemberSpec` and every `ValueCondition`). Relies on homie5's custom
+    /// `HomieValue::deserialize` (WP-6.1).
+    #[test]
+    fn homie_value_map_form_parses_in_every_mapping_context() {
+        let spec = parse(
+            r#"
+id: forms
+nodes:
+  - id: n
+    properties:
+      # context 1+2: top-level compound mapping (direct path) -- `to:` used
+      # to require the `!Bool` tag form before homie5's custom Deserialize
+      - id: direct
+        compound_spec:
+          members:
+            - dev-a/n/p
+          mapping:
+            input:
+              - { from: { Bool: true }, to: { Integer: 1 } }
+            output:
+              - { from: { Integer: 1 }, to: { Bool: true } }
+      - id: buffered
+        compound_spec:
+          members:
+            # context 3: per-member mapping (untagged MemberSpec -> buffered)
+            - property: dev-b/n/p
+              mapping:
+                input:
+                  - { from: { Bool: false }, to: { Float: 0.5 } }
+                output:
+                  - { to: { Enum: low } }
+            # context 4+5: mqtt member channels (buffered)
+            - mqtt_input:
+                topic: some/topic
+                mapping:
+                  - { from: 'on', to: { Bool: true } }
+              mqtt_output:
+                topic: some/topic/set
+                mapping:
+                  - { from: { Bool: true }, to: 'on' }
+"#,
+        )
+        .expect("map form must parse in every mapping context");
+
+        // context 1+2: direct-path mapping round-tripped into the right values
+        let direct = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
+        let mapping = direct.mapping.as_ref().unwrap();
+        assert_eq!(mapping.input.0[0].to, HomieValue::Integer(1));
+        assert_eq!(mapping.output.0[0].to, HomieValue::Bool(true));
+
+        // context 3: member-level mapping
+        let buffered = spec.nodes[0].properties[1].compound_spec.as_ref().unwrap();
+        let MemberSpec::PropertyRefMember { mapping, .. } = &buffered.members[0] else {
+            panic!("expected PropertyRefMember");
+        };
+        assert_eq!(mapping.input.0[0].to, HomieValue::Float(0.5));
+        assert_eq!(mapping.output.0[0].to, HomieValue::Enum("low".to_string()));
+
+        // context 4+5: mqtt channels
+        let MemberSpec::MqttMember {
+            mqtt_input,
+            mqtt_output,
+        } = &buffered.members[1]
+        else {
+            panic!("expected MqttMember");
+        };
+        assert_eq!(mqtt_input.mapping.0[0].to, HomieValue::Bool(true));
+        assert_eq!(mqtt_output.as_ref().unwrap().mapping.0[0].to, "on".to_string());
+    }
+
+    /// The YAML tag form keeps working on the direct path (backward
+    /// compatibility for the only context where it ever worked).
+    #[test]
+    fn homie_value_tag_form_still_parses_in_direct_mapping_context() {
+        let spec = parse(
+            r#"
+id: forms
+nodes:
+  - id: n
+    properties:
+      - id: direct
+        compound_spec:
+          members:
+            - dev-a/n/p
+          mapping:
+            output:
+              - { to: !Bool false }
+"#,
+        )
+        .expect("tag form must keep parsing on the direct path");
+        let compound = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
+        assert_eq!(compound.mapping.as_ref().unwrap().output.0[0].to, HomieValue::Bool(false));
+    }
+
+    /// Regression guard: every document of the shipped example file keeps
+    /// parsing (it exercises the documented map form in member-level
+    /// mappings extensively).
+    #[test]
+    fn example_test_vdevice_yaml_parses_unchanged() {
+        let raw = include_str!("../../virtual_devices/test.vdevice.yaml");
+        let mut count = 0;
+        for (i, doc) in serde_yaml_ng::Deserializer::from_str(raw).enumerate() {
+            VirtualDeviceSpec::deserialize(doc).unwrap_or_else(|e| panic!("document {i} failed to parse: {e}"));
+            count += 1;
+        }
+        assert!(count > 0, "expected at least one document in test.vdevice.yaml");
+    }
 }

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use color_eyre::eyre::Result;
 use config_watcher::config_item_watcher::ConfigItemEvent;
 use cron::handle_cron_event;
@@ -56,7 +58,11 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
     loop {
         // timeout is usually 60s, except if we want to exit, we set it to one second, so the
         // application exits as soon as all events are done processing
-        let timeout = if state.should_exit { 1 } else { 60 };
+        let timeout = if state.should_exit {
+            Duration::from_secs(1)
+        } else {
+            Duration::from_secs(60)
+        };
         let exit = match event_multiplexer.next(timeout).await {
             Event::App(app_event) => handle_app_event(app_event, state).await?,
             Event::DiscoveryClient(homie_client_event) => {

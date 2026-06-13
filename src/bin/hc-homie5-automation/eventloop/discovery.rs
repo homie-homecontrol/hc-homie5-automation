@@ -49,6 +49,10 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                             state.vdm.update_compound_members(device_ref, desc).await?;
                         }
 
+                        // schedule debounced rebuilds for group devices this
+                        // device is a member of (no-op for non-members)
+                        state.vdm.source_device_changed(device_ref).await;
+
                         // iterate over all rules and update any materialized queries with the
                         // updated/added device
                         state.rules.queries_device_updated(device_ref, desc);
@@ -61,12 +65,20 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
 
                         state.vdm.update_compound_members_removed(&device.ident).await?;
 
+                        // schedule debounced rebuilds for group devices this
+                        // device was a member of (no-op for non-members)
+                        state.vdm.source_device_removed(&device.ident).await;
+
                         state
                             .rules
                             .queries_device_removed(&device.ident, device.description.as_ref());
                     }
                     DiscoveryAction::StateChanged { device, from, to } => {
                         log::debug!("Device state changed: {}: {} -> {}", device.to_topic().build(), from, to);
+                        // Recalculate aggregated values for virtual properties referencing
+                        // this device, since the aggregate function filters members by
+                        // Ready state — a state transition changes which members participate.
+                        state.vdm.recalculate_members_for_device(&device).await?;
                     }
                     _ => {
                         run_subject_rules(&action, &state.as_rule_ctx()).await;

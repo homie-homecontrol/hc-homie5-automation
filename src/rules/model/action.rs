@@ -1,4 +1,4 @@
-use super::TimerDef;
+use super::{deserialize_optional_duration, TimerDef};
 use crate::solar_events::SolarPhase;
 use hc_homie5::value::{ValueMappingList, ValueMatcher};
 use homie5::PropertyRef;
@@ -7,6 +7,7 @@ use homie5::client::QoS;
 use homie5::HomieValue;
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
@@ -31,7 +32,14 @@ pub enum RuleAction {
         target: ActionTargets,
     },
     #[serde(rename = "run")] // Explicitly rename the "Set" variant to "set"
-    Run { script: String, timer: Option<TimerDef> },
+    Run {
+        script: String,
+        timer: Option<TimerDef>,
+        /// Optional execution budget for this script. Overrides the global
+        /// `lua_script_timeout` setting. Duration string, e.g. `500ms`, `10s`.
+        #[serde(default, deserialize_with = "deserialize_optional_duration")]
+        script_timeout: Option<Duration>,
+    },
     #[serde(rename = "timer")] // Explicitly rename the "Set" variant to "set"
     Timer { timer: TimerDef },
     #[serde(rename = "cancel_timer")] // Explicitly rename the "Set" variant to "set"
