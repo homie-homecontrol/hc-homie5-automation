@@ -135,3 +135,164 @@ fn match_prop_change(
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::ChangedTrigger;
+    use hc_homie5::value::ValueCondition;
+    use std::str::FromStr;
+
+    fn prop(s: &str) -> PropertyRef {
+        PropertyRef::from_str(s).unwrap()
+    }
+
+    fn triggered(properties: Vec<PropertyRef>, trigger_value: ValueCondition<HomieValue>) -> RuleTrigger {
+        RuleTrigger::PropertyTriggered {
+            properties,
+            queries: Vec::new(),
+            trigger_value,
+            r#while: None,
+        }
+    }
+
+    fn changed(properties: Vec<PropertyRef>, changed: ChangedTrigger) -> RuleTrigger {
+        RuleTrigger::PropertyChanged {
+            properties,
+            queries: Vec::new(),
+            changed,
+            r#while: None,
+        }
+    }
+
+    // --- match_prop_trigger ---
+
+    #[test]
+    fn trigger_property_and_value_match() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = triggered(vec![p.clone()], ValueCondition::Value(HomieValue::Bool(true)));
+        assert!(match_prop_trigger(&p, &trigger, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn trigger_value_condition_fails() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = triggered(vec![p.clone()], ValueCondition::Value(HomieValue::Bool(true)));
+        // Property matches but value condition (expects true) fails on false.
+        assert!(!match_prop_trigger(&p, &trigger, &HomieValue::Bool(false), &devices));
+    }
+
+    #[test]
+    fn trigger_empty_properties_and_queries_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = triggered(Vec::new(), ValueCondition::Value(HomieValue::Bool(true)));
+        assert!(!match_prop_trigger(&p, &trigger, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn trigger_non_matching_property_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let other = prop("homie/dev/node/other");
+        let trigger = triggered(vec![other], ValueCondition::Value(HomieValue::Bool(true)));
+        assert!(!match_prop_trigger(&p, &trigger, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn trigger_wrong_variant_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        // A PropertyChanged trigger never matches in match_prop_trigger.
+        let trigger = changed(vec![p.clone()], ChangedTrigger { from: None, to: None });
+        assert!(!match_prop_trigger(&p, &trigger, &HomieValue::Bool(true), &devices));
+    }
+
+    // --- match_prop_change ---
+
+    #[test]
+    fn change_to_only_matches() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = changed(
+            vec![p.clone()],
+            ChangedTrigger {
+                from: None,
+                to: Some(ValueCondition::Value(HomieValue::Bool(true))),
+            },
+        );
+        // from event is None, but rule sets no `from` condition -> from passes.
+        assert!(match_prop_change(&p, &trigger, None, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn change_from_set_but_event_from_none_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = changed(
+            vec![p.clone()],
+            ChangedTrigger {
+                from: Some(ValueCondition::Value(HomieValue::Bool(false))),
+                to: None,
+            },
+        );
+        // Rule requires a `from` value but the event carries no previous value.
+        assert!(!match_prop_change(&p, &trigger, None, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn change_both_from_and_to_match() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = changed(
+            vec![p.clone()],
+            ChangedTrigger {
+                from: Some(ValueCondition::Value(HomieValue::Bool(false))),
+                to: Some(ValueCondition::Value(HomieValue::Bool(true))),
+            },
+        );
+        assert!(match_prop_change(
+            &p,
+            &trigger,
+            Some(&HomieValue::Bool(false)),
+            &HomieValue::Bool(true),
+            &devices
+        ));
+        // `to` mismatch -> false.
+        assert!(!match_prop_change(
+            &p,
+            &trigger,
+            Some(&HomieValue::Bool(false)),
+            &HomieValue::Bool(false),
+            &devices
+        ));
+    }
+
+    #[test]
+    fn change_empty_properties_and_queries_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let trigger = changed(Vec::new(), ChangedTrigger { from: None, to: None });
+        assert!(!match_prop_change(&p, &trigger, None, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn change_non_matching_property_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        let other = prop("homie/dev/node/other");
+        let trigger = changed(vec![other], ChangedTrigger { from: None, to: None });
+        assert!(!match_prop_change(&p, &trigger, None, &HomieValue::Bool(true), &devices));
+    }
+
+    #[test]
+    fn change_wrong_variant_returns_false() {
+        let devices = DeviceStore::new();
+        let p = prop("homie/dev/node/prop");
+        // A PropertyTriggered trigger never matches in match_prop_change.
+        let trigger = triggered(vec![p.clone()], ValueCondition::Value(HomieValue::Bool(true)));
+        assert!(!match_prop_change(&p, &trigger, None, &HomieValue::Bool(true), &devices));
+    }
+}
