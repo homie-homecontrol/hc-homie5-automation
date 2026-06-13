@@ -45,6 +45,12 @@ impl PropertyIndexer {
             .and_then(|dev_entry| dev_entry.get(prop_ref.prop_pointer()))
     }
 
+    /// Look up all indexed property pointers for a given device.
+    /// Returns the full sub-map for the device if any virtual properties reference it.
+    pub fn lookup_device(&self, device_ref: &DeviceRef) -> Option<&PropertyPointerIndexMap> {
+        self.0.get(device_ref)
+    }
+
     pub fn add_index_for_virtual_device(&mut self, vd: &VirtualDevice) {
         for (_, vprop) in vd.properties.iter() {
             for cp in vprop.compound_properties() {

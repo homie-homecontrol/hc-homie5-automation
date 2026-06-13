@@ -218,9 +218,11 @@ impl VirtualDeviceManager {
         let mut vdevices = self.devices.write().await;
         let mut index = self.index.write().await;
         let devices = self.dm.read().await;
-        for (_, vdevice) in vdevices.iter_mut().filter(|(_, vd)| vd.has_queries()) {
+        for (_, vdevice) in vdevices.iter_mut() {
             let changed = vdevice.update_compound_members(device_ref, desc, &devices).await?;
             if changed {
+                // Only rebuild index for properties with query members, since only
+                // query member changes affect the index (direct members are static).
                 for (_, vprop) in vdevice.properties.iter().filter(|(_, p)| p.has_queries()) {
                     index.update_index_for_virtual_prop(vprop);
                 }
@@ -238,6 +240,27 @@ impl VirtualDeviceManager {
             for index in indexes.iter() {
                 if let Some(vdevice) = vdevices.get_mut(index.device_ref()) {
                     vdevice.update_member_value_prop(prop, value).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Trigger value recalculation for all virtual properties that have compound
+    /// members referencing the given device. This is used when a device's state
+    /// changes (e.g. Ready -> Lost or Lost -> Ready) so that aggregate values
+    /// correctly include/exclude members based on their device readiness.
+    pub async fn recalculate_members_for_device(&self, device_ref: &DeviceRef) -> Result<()> {
+        let mut vdevices = self.devices.write().await;
+        let index = self.index.read().await;
+        let devices = self.dm.read().await;
+
+        if let Some(device_index) = index.lookup_device(device_ref) {
+            for vprop_refs in device_index.values() {
+                for vprop_ref in vprop_refs.iter() {
+                    if let Some(vdevice) = vdevices.get_mut(vprop_ref.device_ref()) {
+                        vdevice.update_value(vprop_ref, &devices).await?;
+                    }
                 }
             }
         }

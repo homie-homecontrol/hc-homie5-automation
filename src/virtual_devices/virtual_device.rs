@@ -220,7 +220,7 @@ impl VirtualDevice {
         desc: &HomieDeviceDescription,
         devices: &DeviceStore,
     ) -> Result<bool> {
-        for (_, vprop) in self.properties.iter_mut().filter(|(_, v)| v.has_queries()) {
+        for (_, vprop) in self.properties.iter_mut() {
             vprop.update_compound_members(device_ref, desc, devices).await?;
         }
         Ok(true)

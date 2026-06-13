@@ -176,19 +176,19 @@ impl VirtualProperty {
     pub async fn update_compound_members_removed(
         &mut self,
         device_ref: &DeviceRef,
-        // devices: &DeviceStore,
-        // homie_client: &HomieMQTTClient,
-        // homie_proto: &Homie5DeviceProtocol,
     ) -> Result<bool> {
         let mut changed = false;
-        self.prop_compound_members.retain(|k, _| {
-            if k.device_ref() == device_ref {
-                changed = true;
-                return false;
-            }
-            true
-        });
 
+        // Do NOT remove direct property compound members — they are fixed references
+        // defined in config. The aggregate function already excludes members from
+        // non-Ready devices at evaluation time (via device_state_resolved check).
+        // Keeping them ensures they automatically recover when the device reappears.
+        if self.prop_compound_members.keys().any(|k| k.device_ref() == device_ref) {
+            changed = true;
+        }
+
+        // Query members are dynamic — remove the ones belonging to the removed device.
+        // They will be re-added when the device is rediscovered via update_compound_members.
         for qcm in self.query_compound_members.iter_mut() {
             if qcm.update_compound_members_removed(device_ref) {
                 changed = true;
@@ -196,7 +196,6 @@ impl VirtualProperty {
         }
 
         if changed {
-            // self.update_value(devices, homie_client, homie_proto).await?;
             self.trigger_value_recalculation().await;
         }
         Ok(changed)
@@ -210,22 +209,20 @@ impl VirtualProperty {
         device_ref: &DeviceRef,
         desc: &HomieDeviceDescription,
         devices: &DeviceStore,
-        // homie_client: &HomieMQTTClient,
-        // homie_proto: &Homie5DeviceProtocol,
     ) -> Result<bool> {
-        if !self.has_queries {
-            return Ok(false);
-        }
         let Some(compound_spec) = &self.compound_spec else {
             return Ok(false);
         };
 
         if device_ref == self.prop_ref.device_ref() && desc.with_property(&self.prop_ref, |_| true).unwrap_or(false) {
-            // do not include self in queries
+            // do not include self in queries or settable updates
             return Ok(false);
         }
 
-        // update settable flag for property compound members
+        // Always update settable flag for direct property compound members,
+        // even if this property has no query members. The settable flag may have
+        // been initialized to the default (false) if the member device was not
+        // yet discovered when this virtual property was created.
         for (node_id, _, prop_id, prop_desc) in desc.iter() {
             for (prop_ref, pcm) in self.prop_compound_members.iter_mut() {
                 if prop_ref.belongs_to_device(device_ref)
@@ -237,6 +234,11 @@ impl VirtualProperty {
             }
         }
 
+        // Query member re-evaluation only needed if we have query members
+        if !self.has_queries {
+            return Ok(false);
+        }
+
         let mut changed = false;
         for qcm in self.query_compound_members.iter_mut() {
             if qcm.update_compound_members(device_ref, desc, devices, compound_spec.mapping.as_ref()) {
@@ -245,7 +247,6 @@ impl VirtualProperty {
         }
 
         if changed {
-            // self.update_value(devices, homie_client, homie_proto).await?;
             self.trigger_value_recalculation().await;
         }
 

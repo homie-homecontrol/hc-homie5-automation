@@ -67,6 +67,10 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                     }
                     DiscoveryAction::StateChanged { device, from, to } => {
                         log::debug!("Device state changed: {}: {} -> {}", device.to_topic().build(), from, to);
+                        // Recalculate aggregated values for virtual properties referencing
+                        // this device, since the aggregate function filters members by
+                        // Ready state — a state transition changes which members participate.
+                        state.vdm.recalculate_members_for_device(&device).await?;
                     }
                     _ => {
                         run_subject_rules(&action, &state.as_rule_ctx()).await;
