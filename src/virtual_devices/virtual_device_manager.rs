@@ -95,7 +95,7 @@ impl VirtualDeviceManager {
             let filename = self
                 .get_cfg_filename(&hash)
                 .await
-                .unwrap_or("unkown-document".to_string());
+                .unwrap_or("unknown-document".to_string());
             return Err(eyre!(format!(
                 "Duplicate Virtual device defined! ID: {} ({}) - Config Document: {}",
                 device_ref.device_id(),

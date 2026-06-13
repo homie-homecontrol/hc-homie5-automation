@@ -211,8 +211,8 @@ pub async fn initialize_app(
         ValueStoreConfig::Kubernetes {
             name,
             namespace,
-            ressource_type,
-        } => KeyValueStore::Kubernetes(KubernetesStore::new(namespace, name, *ressource_type).await?),
+            resource_type,
+        } => KeyValueStore::Kubernetes(KubernetesStore::new(namespace, name, *resource_type).await?),
         ValueStoreConfig::Sqlite { path } => KeyValueStore::SQLite(SQLiteStore::new(path).await),
     };
 

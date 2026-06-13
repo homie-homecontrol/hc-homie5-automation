@@ -189,7 +189,7 @@ impl VirtualPropertySpec {
         // Create VirtualPropertyConfig from config-specific fields
         let config = VirtualPropertyConfig {
             pass_through: self.pass_through,
-            propert_opts: self.property_opts,
+            property_opts: self.property_opts,
             compound_spec: self.compound_spec,
         };
 
@@ -248,7 +248,7 @@ impl From<VirtualPropertyDescription> for HomiePropertyDescription {
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct VirtualPropertyConfig {
     pub pass_through: Option<bool>,
-    pub propert_opts: Option<VirtualPropertyOptions>,
+    pub property_opts: Option<VirtualPropertyOptions>,
     pub compound_spec: Option<CompoundSpec>,
 }
 

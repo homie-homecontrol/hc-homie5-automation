@@ -58,7 +58,7 @@ impl VirtualProperty {
         app_event_sender: mpsc::Sender<AppEvent>,
     ) -> Result<Self> {
         let mut prop_compound_members: PropertyCompoundMembers = HashMap::new();
-        let mut mqtt_compoung_members = HashMap::new();
+        let mut mqtt_compound_members = HashMap::new();
         let mut query_compound_members = Vec::new();
         let mut value = None;
         let mut has_queries = false;
@@ -95,7 +95,7 @@ impl VirtualProperty {
                             output: output.clone(),
                         };
                         mqtt_client.subscribe(&topic, rumqttc::QoS::ExactlyOnce).await?;
-                        mqtt_compoung_members.insert(topic.clone(), m);
+                        mqtt_compound_members.insert(topic.clone(), m);
                     }
                     MemberSpec::QueryMember { query, mapping } => {
                         query_compound_members.push(QueryCompoundMember::new(
@@ -114,7 +114,7 @@ impl VirtualProperty {
                     .values()
                     .chain(query_compound_members.iter().flat_map(|qcm| qcm.values()))
                     .unique_by(|v| &v.prop),
-                &mqtt_compoung_members,
+                &mqtt_compound_members,
                 datatype,
                 devices,
                 compound_spec.aggregate_function,
@@ -136,7 +136,7 @@ impl VirtualProperty {
 
         // check if we have options defined, otherwise take them from the node or if this also
         // is not defined use the default
-        let options = if let Some(options) = spec.propert_opts {
+        let options = if let Some(options) = spec.property_opts {
             options
         } else if let Some(node_options) = node_prop_opts {
             node_options.clone()
@@ -165,7 +165,7 @@ impl VirtualProperty {
             value,
             compound_spec: spec.compound_spec,
             prop_compound_members,
-            mqtt_compound_members: mqtt_compoung_members,
+            mqtt_compound_members,
             query_compound_members,
             has_queries,
             debouncer,

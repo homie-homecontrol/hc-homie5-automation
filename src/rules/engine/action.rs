@@ -1,6 +1,6 @@
 use super::RuleContext;
 use crate::lua_runtime::{
-    setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDecvice,
+    setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDevice,
 };
 use crate::rules::{MapSetFrom, RuleAction, TimerDef};
 use crate::solar_events::SolarEvent;
@@ -275,7 +275,7 @@ pub(crate) async fn run_script(
     let lua = Lua::new();
 
     let lua_homie = LuaHomie { dm: ctx.dm.clone() };
-    let lua_virtual_device = LuaVirtualDecvice {
+    let lua_virtual_device = LuaVirtualDevice {
         vdm: ctx.vdm.as_proxy(),
     };
 

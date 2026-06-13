@@ -8,7 +8,7 @@ use super::{
 
 pub fn update_compound_value<'a>(
     prop_compound_members: impl Iterator<Item = &'a PropertyCompoundMember>,
-    mqtt_compoung_members: &MqttCompoundMembers,
+    mqtt_compound_members: &MqttCompoundMembers,
     datatype: HomieDataType,
     devices: &DeviceStore,
     aggregate_function: AggregateFunctionType,
@@ -23,7 +23,7 @@ pub fn update_compound_value<'a>(
             )
         })
         .map(|m| m.value.as_ref())
-        .chain(mqtt_compoung_members.values().map(|m| m.value.as_ref()))
+        .chain(mqtt_compound_members.values().map(|m| m.value.as_ref()))
         .flatten();
 
     // Select the aggregate function based on the AggregateFunctionType

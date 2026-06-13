@@ -99,7 +99,7 @@ pub enum ValueStoreConfig {
     Kubernetes {
         name: String,
         namespace: String,
-        ressource_type: KubernetesResource,
+        resource_type: KubernetesResource,
     },
     Sqlite {
         path: String,
@@ -120,7 +120,7 @@ impl TryFrom<String> for ValueStoreConfig {
             }),
             "kubernetes" if parts.len() >= 2 => {
                 let kube_parts: Vec<&str> = parts[1].splitn(3, ',').collect();
-                let ressource_type = match kube_parts[0] {
+                let resource_type = match kube_parts[0] {
                     "secret" => KubernetesResource::Secret,
                     "configmap" => KubernetesResource::ConfigMap,
                     _ => KubernetesResource::ConfigMap,
@@ -134,7 +134,7 @@ impl TryFrom<String> for ValueStoreConfig {
                 Ok(ValueStoreConfig::Kubernetes {
                     name,
                     namespace,
-                    ressource_type,
+                    resource_type,
                 })
             }
             _ => {

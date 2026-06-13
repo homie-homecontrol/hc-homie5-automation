@@ -152,7 +152,7 @@ impl RuleTriggerEvent<'_> {
     pub fn trigger_type(&self) -> &str {
         match self {
             RuleTriggerEvent::PropertyChanged { .. } => "changed",
-            RuleTriggerEvent::PropertyTriggered { .. } => "trigered",
+            RuleTriggerEvent::PropertyTriggered { .. } => "triggered",
             RuleTriggerEvent::Timer(_) => "timer",
             RuleTriggerEvent::Cron(_) => "cron",
             RuleTriggerEvent::Solar(_) => "solar",
