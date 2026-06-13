@@ -173,10 +173,7 @@ impl VirtualProperty {
         })
     }
 
-    pub async fn update_compound_members_removed(
-        &mut self,
-        device_ref: &DeviceRef,
-    ) -> Result<bool> {
+    pub async fn update_compound_members_removed(&mut self, device_ref: &DeviceRef) -> Result<bool> {
         let mut changed = false;
 
         // Do NOT remove direct property compound members — they are fixed references
@@ -316,7 +313,11 @@ impl VirtualProperty {
         homie_client: &HomieMQTTClient,
         homie_proto: &Homie5DeviceProtocol,
     ) -> Result<(), eyre::Error> {
-        if let Some(aggr_func) = self.compound_spec.as_ref().map(|f| f.aggregate_function.unwrap_or_default()) {
+        if let Some(aggr_func) = self
+            .compound_spec
+            .as_ref()
+            .map(|f| f.aggregate_function.unwrap_or_default())
+        {
             let value = update_compound_value(
                 self.compound_properties(),
                 &self.mqtt_compound_members,

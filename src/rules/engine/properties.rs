@@ -253,21 +253,9 @@ mod tests {
                 to: Some(ValueCondition::Value(HomieValue::Bool(true))),
             },
         );
-        assert!(match_prop_change(
-            &p,
-            &trigger,
-            Some(&HomieValue::Bool(false)),
-            &HomieValue::Bool(true),
-            &devices
-        ));
+        assert!(match_prop_change(&p, &trigger, Some(&HomieValue::Bool(false)), &HomieValue::Bool(true), &devices));
         // `to` mismatch -> false.
-        assert!(!match_prop_change(
-            &p,
-            &trigger,
-            Some(&HomieValue::Bool(false)),
-            &HomieValue::Bool(false),
-            &devices
-        ));
+        assert!(!match_prop_change(&p, &trigger, Some(&HomieValue::Bool(false)), &HomieValue::Bool(false), &devices));
     }
 
     #[test]

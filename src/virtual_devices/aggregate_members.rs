@@ -327,30 +327,21 @@ mod aggregate_tests {
     fn avg_integer_rounds_to_nearest() {
         // 4 / 3 = 1.333... → round → 1
         let v = [HomieValue::Integer(1), HomieValue::Integer(1), HomieValue::Integer(2)];
-        assert_eq!(
-            aggregate_avg(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(1))
-        );
+        assert_eq!(aggregate_avg(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(1)));
     }
 
     #[test]
     fn avgceil_integer_rounds_up() {
         // 4 / 3 = 1.333... → ceil → 2 (distinct from avg's 1)
         let v = [HomieValue::Integer(1), HomieValue::Integer(1), HomieValue::Integer(2)];
-        assert_eq!(
-            aggregate_avgceil(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(2))
-        );
+        assert_eq!(aggregate_avgceil(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(2)));
     }
 
     #[test]
     fn avgceil_float_ceils() {
         // (1.0 + 1.0 + 2.0) / 3 = 1.333... → ceil → 2.0
         let v = [HomieValue::Float(1.0), HomieValue::Float(1.0), HomieValue::Float(2.0)];
-        assert_eq!(
-            aggregate_avgceil(v.iter(), HomieDataType::Float),
-            Some(HomieValue::Float(2.0))
-        );
+        assert_eq!(aggregate_avgceil(v.iter(), HomieDataType::Float), Some(HomieValue::Float(2.0)));
     }
 
     #[test]
@@ -369,10 +360,7 @@ mod aggregate_tests {
             HomieValue::String("x".into()),
             HomieValue::Integer(4),
         ];
-        assert_eq!(
-            aggregate_avg(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(3))
-        );
+        assert_eq!(aggregate_avg(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(3)));
     }
 
     // --- max / min ---
@@ -380,10 +368,7 @@ mod aggregate_tests {
     #[test]
     fn max_happy_path() {
         let v = [HomieValue::Integer(1), HomieValue::Integer(5), HomieValue::Integer(3)];
-        assert_eq!(
-            aggregate_max(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(5))
-        );
+        assert_eq!(aggregate_max(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(5)));
         let v = [HomieValue::Float(1.5), HomieValue::Float(0.5)];
         assert_eq!(aggregate_max(v.iter(), HomieDataType::Float), Some(HomieValue::Float(1.5)));
     }
@@ -391,10 +376,7 @@ mod aggregate_tests {
     #[test]
     fn min_happy_path() {
         let v = [HomieValue::Integer(1), HomieValue::Integer(5), HomieValue::Integer(3)];
-        assert_eq!(
-            aggregate_min(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(1))
-        );
+        assert_eq!(aggregate_min(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(1)));
         let v = [HomieValue::Float(1.5), HomieValue::Float(0.5)];
         assert_eq!(aggregate_min(v.iter(), HomieDataType::Float), Some(HomieValue::Float(0.5)));
     }
@@ -414,13 +396,7 @@ mod aggregate_tests {
             HomieValue::String("x".into()),
             HomieValue::Integer(2),
         ];
-        assert_eq!(
-            aggregate_max(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(7))
-        );
-        assert_eq!(
-            aggregate_min(v.iter(), HomieDataType::Integer),
-            Some(HomieValue::Integer(2))
-        );
+        assert_eq!(aggregate_max(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(7)));
+        assert_eq!(aggregate_min(v.iter(), HomieDataType::Integer), Some(HomieValue::Integer(2)));
     }
 }

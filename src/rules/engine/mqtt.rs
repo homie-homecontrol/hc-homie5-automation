@@ -163,13 +163,7 @@ mod topic_match_tests {
         ];
 
         for (filter, topic, expected) in cases {
-            assert_eq!(
-                mqtt_topic_match(filter, topic),
-                expected,
-                "filter={:?} topic={:?}",
-                filter,
-                topic
-            );
+            assert_eq!(mqtt_topic_match(filter, topic), expected, "filter={:?} topic={:?}", filter, topic);
         }
     }
 }

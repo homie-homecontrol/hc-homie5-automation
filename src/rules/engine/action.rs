@@ -435,10 +435,7 @@ mod script_timeout_tests {
         let err = exec_script_with_budget(&lua, "while true do end", Duration::from_millis(100), "busy-rule")
             .await
             .expect_err("busy loop must be cancelled via hook");
-        assert!(
-            started.elapsed() < Duration::from_secs(10),
-            "cancellation must happen near the budget, not hang"
-        );
+        assert!(started.elapsed() < Duration::from_secs(10), "cancellation must happen near the budget, not hang");
         let msg = err.to_string();
         assert!(msg.contains("busy-rule"), "error must name the rule: {msg}");
         assert!(msg.contains("budget"), "error must mention the budget: {msg}");

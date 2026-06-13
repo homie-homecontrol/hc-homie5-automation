@@ -315,7 +315,10 @@ impl ManagedMqttClient {
     pub async fn resubscribe(&self) -> Result<(), MqttClientError> {
         let subs = self.subscriptions.read().await;
         self.client
-            .subscribe_many(subs.iter().map(|(topic, qos)| SubscribeFilter::new(topic.to_string(), qos)))
+            .subscribe_many(
+                subs.iter()
+                    .map(|(topic, qos)| SubscribeFilter::new(topic.to_string(), qos)),
+            )
             .await?;
         Ok(())
     }

@@ -33,7 +33,9 @@ use hc_homie5::store::DeviceStore;
 use homie5::device_description::{FloatRange, HomiePropertyDescription, HomiePropertyFormat, IntegerRange};
 use homie5::{DeviceRef, HomieDataType, HomieDomain, HomieID, PropertyRef};
 
-use super::{AggregateFunctionType, CompoundSpec, GroupSpec, MemberSpec, VirtualDeviceSpec, VirtualNodeSpec, VirtualPropertySpec};
+use super::{
+    AggregateFunctionType, CompoundSpec, GroupSpec, MemberSpec, VirtualDeviceSpec, VirtualNodeSpec, VirtualPropertySpec,
+};
 
 /// Result of materializing a group device spec.
 #[derive(Debug)]
@@ -303,7 +305,11 @@ fn merge_property(
 ///
 /// Generated node order is preserved; new overlay nodes follow in overlay
 /// order.
-fn apply_overlays(group_id: &HomieID, generated: Vec<VirtualNodeSpec>, overlays: &[VirtualNodeSpec]) -> Vec<VirtualNodeSpec> {
+fn apply_overlays(
+    group_id: &HomieID,
+    generated: Vec<VirtualNodeSpec>,
+    overlays: &[VirtualNodeSpec],
+) -> Vec<VirtualNodeSpec> {
     let generated_ids: Vec<HomieID> = generated.iter().map(|n| n.id.clone()).collect();
 
     let mut nodes: Vec<VirtualNodeSpec> = generated
@@ -715,18 +721,11 @@ mod tests {
             "dev-b",
             vec![
                 ("switch", Some("Switch"), vec![("state", bool_prop(true))]),
-                (
-                    "level",
-                    None,
-                    vec![("value", prop(HomieDataType::Integer, int_range(Some(0), Some(100), None)))],
-                ),
+                ("level", None, vec![("value", prop(HomieDataType::Integer, int_range(Some(0), Some(100), None)))]),
                 (
                     "color",
                     None,
-                    vec![(
-                        "color",
-                        prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Rgb])),
-                    )],
+                    vec![("color", prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Rgb])))],
                 ),
             ],
         );
@@ -735,18 +734,11 @@ mod tests {
             "dev-c",
             vec![
                 ("switch", Some("Other Name"), vec![("state", bool_prop(true))]),
-                (
-                    "level",
-                    None,
-                    vec![("value", prop(HomieDataType::Integer, int_range(Some(0), Some(254), None)))],
-                ),
+                ("level", None, vec![("value", prop(HomieDataType::Integer, int_range(Some(0), Some(254), None)))]),
                 (
                     "color",
                     None,
-                    vec![(
-                        "color",
-                        prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Hsv])),
-                    )],
+                    vec![("color", prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Hsv])))],
                 ),
             ],
         );
@@ -789,7 +781,10 @@ group:
         let level = get_prop(&result, "level", "value");
         assert_eq!(
             member_refs(level),
-            vec!["homie/dev-b/level/value".to_string(), "homie/dev-c/level/value".to_string()]
+            vec![
+                "homie/dev-b/level/value".to_string(),
+                "homie/dev-c/level/value".to_string()
+            ]
         );
         assert_eq!(level.format.as_deref(), Some("0:254"));
         let compound = level.compound_spec.as_ref().unwrap();
@@ -876,10 +871,7 @@ group:
         assert_eq!(p.datatype, Some(HomieDataType::String));
         assert_eq!(member_refs(p), vec!["homie/dev-a/n/p".to_string()]);
         // string -> equal aggregate
-        assert!(matches!(
-            p.compound_spec.as_ref().unwrap().aggregate_function,
-            Some(AggregateFunctionType::Equal)
-        ));
+        assert!(matches!(p.compound_spec.as_ref().unwrap().aggregate_function, Some(AggregateFunctionType::Equal)));
     }
 
     #[test]
@@ -1000,10 +992,7 @@ group:
                 (
                     "color",
                     None,
-                    vec![(
-                        "color",
-                        prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Rgb])),
-                    )],
+                    vec![("color", prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Rgb])))],
                 ),
                 ("button", None, vec![("event", prop(HomieDataType::Enum, enum_format(&["press"])))]),
             ],
@@ -1174,7 +1163,10 @@ nodes:
         assert_eq!(action.datatype, Some(HomieDataType::Enum));
         assert_eq!(
             member_refs(action),
-            vec!["homie/dev-a/switch/action".to_string(), "homie/dev-b/switch/action".to_string()]
+            vec![
+                "homie/dev-a/switch/action".to_string(),
+                "homie/dev-b/switch/action".to_string()
+            ]
         );
 
         // sibling property and other nodes are untouched
@@ -1222,7 +1214,10 @@ nodes:
         assert!(compound.mapping.is_some());
         assert_eq!(
             member_refs(state),
-            vec!["homie/dev-a/switch/state".to_string(), "homie/dev-b/switch/state".to_string()]
+            vec![
+                "homie/dev-a/switch/state".to_string(),
+                "homie/dev-b/switch/state".to_string()
+            ]
         );
 
         // non-empty overlay members replace the generated list; absent
@@ -1374,10 +1369,7 @@ nodes:
             (HomieDataType::Float, float_range(Some(0.5), Some(5.0), Some(0.1))),
             (HomieDataType::Float, float_range(None, Some(2.5), None)),
             (HomieDataType::Enum, enum_format(&["on", "off", "toggle"])),
-            (
-                HomieDataType::Color,
-                HomiePropertyFormat::Color(vec![ColorFormat::Rgb, ColorFormat::Hsv]),
-            ),
+            (HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Rgb, ColorFormat::Hsv])),
         ];
         for (datatype, format) in cases {
             let rendered = format.to_string();

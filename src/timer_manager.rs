@@ -115,7 +115,16 @@ impl TimerManager {
         };
 
         let timer_id = id.clone();
-        spawn_and_register(&self.timers, id, move |handle| Timer { id: timer_id, rule_hash, handle }, body);
+        spawn_and_register(
+            &self.timers,
+            id,
+            move |handle| Timer {
+                id: timer_id,
+                rule_hash,
+                handle,
+            },
+            body,
+        );
     }
 
     /// Cancels a timer by ID
@@ -207,10 +216,7 @@ mod timer_manager_tests {
         rx.recv().await.expect("timer should fire its event");
         tokio::task::yield_now().await;
 
-        assert!(
-            timers.lock().unwrap().is_empty(),
-            "map must not contain a stale entry after the one-shot timer fired"
-        );
+        assert!(timers.lock().unwrap().is_empty(), "map must not contain a stale entry after the one-shot timer fired");
     }
 
     #[tokio::test]

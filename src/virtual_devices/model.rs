@@ -119,10 +119,7 @@ impl std::str::FromStr for GroupExclude {
             .ok_or_else(|| format!("Invalid group exclude entry '{}': missing node id", s))?;
         let property = parts.next();
         if parts.next().is_some() {
-            return Err(format!(
-                "Invalid group exclude entry '{}': expected 'node-id' or 'node-id/prop-id'",
-                s
-            ));
+            return Err(format!("Invalid group exclude entry '{}': expected 'node-id' or 'node-id/prop-id'", s));
         }
         let node = node
             .parse::<HomieID>()
@@ -478,10 +475,7 @@ group:
         )
         .expect("minimal group spec must parse");
         let group = spec.group.expect("group must be set");
-        assert_eq!(
-            group.devices,
-            vec!["dev-a".parse::<HomieID>().unwrap(), "dev-b".parse::<HomieID>().unwrap()]
-        );
+        assert_eq!(group.devices, vec!["dev-a".parse::<HomieID>().unwrap(), "dev-b".parse::<HomieID>().unwrap()]);
         assert!(group.aggregation_debounce.is_none());
         assert!(group.rebuild_debounce.is_none());
         assert!(group.exclude.is_empty());
@@ -674,7 +668,11 @@ nodes:
         assert_eq!(mapping.output.0[0].to, HomieValue::Enum("low".to_string()));
 
         // context 4+5: mqtt channels
-        let MemberSpec::MqttMember { mqtt_input, mqtt_output } = &buffered.members[1] else {
+        let MemberSpec::MqttMember {
+            mqtt_input,
+            mqtt_output,
+        } = &buffered.members[1]
+        else {
             panic!("expected MqttMember");
         };
         assert_eq!(mqtt_input.mapping.0[0].to, HomieValue::Bool(true));
@@ -702,10 +700,7 @@ nodes:
         )
         .expect("tag form must keep parsing on the direct path");
         let compound = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
-        assert_eq!(
-            compound.mapping.as_ref().unwrap().output.0[0].to,
-            HomieValue::Bool(false)
-        );
+        assert_eq!(compound.mapping.as_ref().unwrap().output.0[0].to, HomieValue::Bool(false));
     }
 
     /// Regression guard: every document of the shipped example file keeps
