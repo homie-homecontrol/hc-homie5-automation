@@ -264,6 +264,27 @@ The `from` condition can be:
 - A **comparison operator** (e.g., `"operator": "="` with `value: ["on"]`).
 - A **catch-all default** (by omitting `from`).
 
+### Homie value literals in YAML
+
+Wherever a mapping (or condition) contains a typed Homie value, write it in the
+**single-key map form** — the variant name as the key, the payload as the value:
+
+```yaml
+to: { Bool: true }
+to: { Integer: 5 }
+to: { Float: 21.5 }
+to: { String: "hello" }
+to: { Enum: low }
+to: { Color: "rgb,255,0,0" }
+to: { DateTime: "2024-10-08T10:15:30Z" }
+to: { Duration: PT12H5M46S }
+```
+
+This form works in **every** location — member-level mappings, the top-level
+`compound_spec.mapping`, value conditions (`from:`), and rule files alike.
+(The YAML tag form `!Bool true` is a legacy alternative that only ever worked
+in the top-level `compound_spec.mapping` `to:` field; prefer the map form.)
+
 ### Example: Switch State Mapping
 
 ```yaml

@@ -610,4 +610,115 @@ group:
         );
         assert!(res.is_err());
     }
+
+    /// The canonical `{ Bool: x }` map form must parse in EVERY HomieValue
+    /// mapping context, regardless of whether the field is deserialized on
+    /// serde's direct path (top-level `compound_spec.mapping` `to:`) or
+    /// buffered through `Content` (everything inside the untagged
+    /// `MemberSpec` and every `ValueCondition`). Relies on homie5's custom
+    /// `HomieValue::deserialize` (WP-6.1).
+    #[test]
+    fn homie_value_map_form_parses_in_every_mapping_context() {
+        let spec = parse(
+            r#"
+id: forms
+nodes:
+  - id: n
+    properties:
+      # context 1+2: top-level compound mapping (direct path) -- `to:` used
+      # to require the `!Bool` tag form before homie5's custom Deserialize
+      - id: direct
+        compound_spec:
+          members:
+            - dev-a/n/p
+          mapping:
+            input:
+              - { from: { Bool: true }, to: { Integer: 1 } }
+            output:
+              - { from: { Integer: 1 }, to: { Bool: true } }
+      - id: buffered
+        compound_spec:
+          members:
+            # context 3: per-member mapping (untagged MemberSpec -> buffered)
+            - property: dev-b/n/p
+              mapping:
+                input:
+                  - { from: { Bool: false }, to: { Float: 0.5 } }
+                output:
+                  - { to: { Enum: low } }
+            # context 4+5: mqtt member channels (buffered)
+            - mqtt_input:
+                topic: some/topic
+                mapping:
+                  - { from: 'on', to: { Bool: true } }
+              mqtt_output:
+                topic: some/topic/set
+                mapping:
+                  - { from: { Bool: true }, to: 'on' }
+"#,
+        )
+        .expect("map form must parse in every mapping context");
+
+        // context 1+2: direct-path mapping round-tripped into the right values
+        let direct = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
+        let mapping = direct.mapping.as_ref().unwrap();
+        assert_eq!(mapping.input.0[0].to, HomieValue::Integer(1));
+        assert_eq!(mapping.output.0[0].to, HomieValue::Bool(true));
+
+        // context 3: member-level mapping
+        let buffered = spec.nodes[0].properties[1].compound_spec.as_ref().unwrap();
+        let MemberSpec::PropertyRefMember { mapping, .. } = &buffered.members[0] else {
+            panic!("expected PropertyRefMember");
+        };
+        assert_eq!(mapping.input.0[0].to, HomieValue::Float(0.5));
+        assert_eq!(mapping.output.0[0].to, HomieValue::Enum("low".to_string()));
+
+        // context 4+5: mqtt channels
+        let MemberSpec::MqttMember { mqtt_input, mqtt_output } = &buffered.members[1] else {
+            panic!("expected MqttMember");
+        };
+        assert_eq!(mqtt_input.mapping.0[0].to, HomieValue::Bool(true));
+        assert_eq!(mqtt_output.as_ref().unwrap().mapping.0[0].to, "on".to_string());
+    }
+
+    /// The YAML tag form keeps working on the direct path (backward
+    /// compatibility for the only context where it ever worked).
+    #[test]
+    fn homie_value_tag_form_still_parses_in_direct_mapping_context() {
+        let spec = parse(
+            r#"
+id: forms
+nodes:
+  - id: n
+    properties:
+      - id: direct
+        compound_spec:
+          members:
+            - dev-a/n/p
+          mapping:
+            output:
+              - { to: !Bool false }
+"#,
+        )
+        .expect("tag form must keep parsing on the direct path");
+        let compound = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
+        assert_eq!(
+            compound.mapping.as_ref().unwrap().output.0[0].to,
+            HomieValue::Bool(false)
+        );
+    }
+
+    /// Regression guard: every document of the shipped example file keeps
+    /// parsing (it exercises the documented map form in member-level
+    /// mappings extensively).
+    #[test]
+    fn example_test_vdevice_yaml_parses_unchanged() {
+        let raw = include_str!("../../virtual_devices/test.vdevice.yaml");
+        let mut count = 0;
+        for (i, doc) in serde_yaml_ng::Deserializer::from_str(raw).enumerate() {
+            VirtualDeviceSpec::deserialize(doc).unwrap_or_else(|e| panic!("document {i} failed to parse: {e}"));
+            count += 1;
+        }
+        assert!(count > 0, "expected at least one document in test.vdevice.yaml");
+    }
 }
