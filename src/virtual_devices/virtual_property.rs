@@ -392,7 +392,7 @@ impl VirtualProperty {
         }
         for (prop_ref, member) in self.prop_compound_members.iter().filter(|(_, pcm)| pcm.settable) {
             let p = if let Some(mapping) = &member.mapping {
-                ctrl_proto.set_command(prop_ref, mapping.map_ouput(&value).unwrap())
+                ctrl_proto.set_command(prop_ref, mapping.map_output(&value).unwrap())
             } else {
                 ctrl_proto.set_command(prop_ref, &value)
             };
