@@ -50,6 +50,10 @@ pub struct VirtualDeviceManagerConfig {
     pub homie_domain: HomieDomain,
     pub controller_id: HomieID,
     pub controller_name: String,
+    /// MQTT keepalive used by the virtual-device Homie client.
+    pub keep_alive_secs: u64,
+    /// MQTT inflight limit used by the virtual-device Homie client.
+    pub max_inflight_msgs: u16,
     /// Debounce window for controller children updates. While child devices
     /// are added/removed in bursts (e.g. initial config load), the controller
     /// device description is republished only once per quiet period instead
@@ -104,10 +108,14 @@ impl VirtualDeviceManager {
             .port(config.port)
             .username(&config.username)
             .password(&config.password)
+            .keep_alive(config.keep_alive_secs)
             .last_will(Some(last_will));
 
+        let mut mqtt_options = homie_client_options.to_mqtt_options()?;
+        mqtt_options.set_inflight(config.max_inflight_msgs);
+
         let (device_client_handle, homie_client, homie_event_receiver) =
-            run_homie_client(homie_client_options.to_mqtt_options()?, homie_client_options.mqtt_channel_size)?;
+            run_homie_client(mqtt_options, homie_client_options.mqtt_channel_size)?;
 
         let device_desc = DeviceDescriptionBuilder::new()
             .name(config.controller_name.clone())

@@ -15,6 +15,14 @@ pub static SETTINGS: Lazy<Settings> = Lazy::new(Settings::default);
 
 // Large enough for normal bursts, small enough to expose backpressure instead of hiding stalls.
 pub const CHANNEL_CAPACITY: usize = 1024;
+/// Keepalive for the virtual-device Homie MQTT client. A longer interval gives
+/// large QoS>0 publish bursts more time to drain before rumqttc's collision
+/// watchdog trips.
+pub const KEEP_ALIVE_SECS: u64 = 30;
+/// Raised inflight window for the virtual-device Homie MQTT client. This
+/// matches the bridge crates and avoids rumqttc packet-id collisions during
+/// reconnect/full-republish bursts of QoS2 Homie messages.
+pub const MAX_INFLIGHT_MSGS: u16 = 16384;
 
 #[derive(Debug)]
 pub struct Settings {
@@ -273,5 +281,7 @@ pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> Vir
             .unwrap_or_else(|| "Homecontrol Automation Controller".to_string()),
         controller_children_debounce: (!app.controller_children_debounce.is_zero())
             .then_some(app.controller_children_debounce),
+        keep_alive_secs: KEEP_ALIVE_SECS,
+        max_inflight_msgs: MAX_INFLIGHT_MSGS,
     }
 }
