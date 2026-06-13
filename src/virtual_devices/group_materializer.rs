@@ -1201,6 +1201,9 @@ nodes:
           aggregation_debounce: 500ms
           mapping:
             output:
+              # `to` is a direct HomieValue field (not inside an untagged
+              # enum), so serde_yaml_ng requires the tag form here -- unlike
+              # member-level mappings, where `{ Bool: false }` is the form.
               - { to: !Bool false }
   - id: level
     properties:
