@@ -191,3 +191,236 @@ pub fn aggregate_min<'a>(
             _ => None,
         })
 }
+
+#[cfg(test)]
+mod aggregate_tests {
+    use super::*;
+    use homie5::{HomieDataType, HomieValue};
+
+    // --- equal ---
+
+    #[test]
+    fn equal_all_same_returns_value() {
+        let v = [HomieValue::Bool(true), HomieValue::Bool(true)];
+        assert_eq!(aggregate_equal(v.iter()), Some(HomieValue::Bool(true)));
+    }
+
+    #[test]
+    fn equal_differing_returns_none() {
+        let v = [HomieValue::Bool(true), HomieValue::Bool(false)];
+        assert_eq!(aggregate_equal(v.iter()), None);
+    }
+
+    #[test]
+    fn equal_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_equal(v.iter()), None);
+    }
+
+    // --- or ---
+
+    #[test]
+    fn or_happy_path() {
+        let v = [HomieValue::Bool(false), HomieValue::Bool(true)];
+        assert_eq!(aggregate_or(v.iter()), Some(HomieValue::Bool(true)));
+        let v = [HomieValue::Bool(false), HomieValue::Bool(false)];
+        assert_eq!(aggregate_or(v.iter()), Some(HomieValue::Bool(false)));
+    }
+
+    #[test]
+    fn or_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_or(v.iter()), None);
+    }
+
+    #[test]
+    fn or_ignores_non_boolean_values() {
+        // Integer/String values are filtered out; only the Bool participates.
+        let v = [
+            HomieValue::Integer(5),
+            HomieValue::Bool(true),
+            HomieValue::String("x".into()),
+        ];
+        assert_eq!(aggregate_or(v.iter()), Some(HomieValue::Bool(true)));
+        // All non-boolean → no values left → None.
+        let v = [HomieValue::Integer(1), HomieValue::Float(2.0)];
+        assert_eq!(aggregate_or(v.iter()), None);
+    }
+
+    // --- and ---
+
+    #[test]
+    fn and_happy_path() {
+        let v = [HomieValue::Bool(true), HomieValue::Bool(true)];
+        assert_eq!(aggregate_and(v.iter()), Some(HomieValue::Bool(true)));
+        let v = [HomieValue::Bool(true), HomieValue::Bool(false)];
+        assert_eq!(aggregate_and(v.iter()), Some(HomieValue::Bool(false)));
+    }
+
+    #[test]
+    fn and_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_and(v.iter()), None);
+    }
+
+    #[test]
+    fn and_ignores_non_boolean_values() {
+        let v = [HomieValue::Integer(5), HomieValue::Bool(false)];
+        assert_eq!(aggregate_and(v.iter()), Some(HomieValue::Bool(false)));
+    }
+
+    // --- nor ---
+
+    #[test]
+    fn nor_happy_path() {
+        // nor = !(or)
+        let v = [HomieValue::Bool(false), HomieValue::Bool(false)];
+        assert_eq!(aggregate_nor(v.iter()), Some(HomieValue::Bool(true)));
+        let v = [HomieValue::Bool(true), HomieValue::Bool(false)];
+        assert_eq!(aggregate_nor(v.iter()), Some(HomieValue::Bool(false)));
+    }
+
+    #[test]
+    fn nor_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_nor(v.iter()), None);
+    }
+
+    #[test]
+    fn nor_ignores_non_boolean_values() {
+        let v = [HomieValue::Integer(5), HomieValue::Bool(false)];
+        assert_eq!(aggregate_nor(v.iter()), Some(HomieValue::Bool(true)));
+    }
+
+    // --- nand ---
+
+    #[test]
+    fn nand_happy_path() {
+        // nand = !(and)
+        let v = [HomieValue::Bool(true), HomieValue::Bool(true)];
+        assert_eq!(aggregate_nand(v.iter()), Some(HomieValue::Bool(false)));
+        let v = [HomieValue::Bool(true), HomieValue::Bool(false)];
+        assert_eq!(aggregate_nand(v.iter()), Some(HomieValue::Bool(true)));
+    }
+
+    #[test]
+    fn nand_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_nand(v.iter()), None);
+    }
+
+    #[test]
+    fn nand_ignores_non_boolean_values() {
+        let v = [HomieValue::Integer(5), HomieValue::Bool(true)];
+        assert_eq!(aggregate_nand(v.iter()), Some(HomieValue::Bool(false)));
+    }
+
+    // --- avg / avgceil ---
+
+    #[test]
+    fn avg_float_happy_path() {
+        let v = [HomieValue::Float(1.0), HomieValue::Float(2.0)];
+        assert_eq!(aggregate_avg(v.iter(), HomieDataType::Float), Some(HomieValue::Float(1.5)));
+    }
+
+    #[test]
+    fn avg_integer_rounds_to_nearest() {
+        // 4 / 3 = 1.333... → round → 1
+        let v = [HomieValue::Integer(1), HomieValue::Integer(1), HomieValue::Integer(2)];
+        assert_eq!(
+            aggregate_avg(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(1))
+        );
+    }
+
+    #[test]
+    fn avgceil_integer_rounds_up() {
+        // 4 / 3 = 1.333... → ceil → 2 (distinct from avg's 1)
+        let v = [HomieValue::Integer(1), HomieValue::Integer(1), HomieValue::Integer(2)];
+        assert_eq!(
+            aggregate_avgceil(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(2))
+        );
+    }
+
+    #[test]
+    fn avgceil_float_ceils() {
+        // (1.0 + 1.0 + 2.0) / 3 = 1.333... → ceil → 2.0
+        let v = [HomieValue::Float(1.0), HomieValue::Float(1.0), HomieValue::Float(2.0)];
+        assert_eq!(
+            aggregate_avgceil(v.iter(), HomieDataType::Float),
+            Some(HomieValue::Float(2.0))
+        );
+    }
+
+    #[test]
+    fn avg_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_avg(v.iter(), HomieDataType::Integer), None);
+        assert_eq!(aggregate_avgceil(v.iter(), HomieDataType::Float), None);
+    }
+
+    #[test]
+    fn avg_ignores_non_numeric_values() {
+        // Bool/String ignored; only the two numerics (2, 4) averaged → 3.
+        let v = [
+            HomieValue::Integer(2),
+            HomieValue::Bool(true),
+            HomieValue::String("x".into()),
+            HomieValue::Integer(4),
+        ];
+        assert_eq!(
+            aggregate_avg(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(3))
+        );
+    }
+
+    // --- max / min ---
+
+    #[test]
+    fn max_happy_path() {
+        let v = [HomieValue::Integer(1), HomieValue::Integer(5), HomieValue::Integer(3)];
+        assert_eq!(
+            aggregate_max(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(5))
+        );
+        let v = [HomieValue::Float(1.5), HomieValue::Float(0.5)];
+        assert_eq!(aggregate_max(v.iter(), HomieDataType::Float), Some(HomieValue::Float(1.5)));
+    }
+
+    #[test]
+    fn min_happy_path() {
+        let v = [HomieValue::Integer(1), HomieValue::Integer(5), HomieValue::Integer(3)];
+        assert_eq!(
+            aggregate_min(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(1))
+        );
+        let v = [HomieValue::Float(1.5), HomieValue::Float(0.5)];
+        assert_eq!(aggregate_min(v.iter(), HomieDataType::Float), Some(HomieValue::Float(0.5)));
+    }
+
+    #[test]
+    fn max_min_empty_returns_none() {
+        let v: [HomieValue; 0] = [];
+        assert_eq!(aggregate_max(v.iter(), HomieDataType::Integer), None);
+        assert_eq!(aggregate_min(v.iter(), HomieDataType::Float), None);
+    }
+
+    #[test]
+    fn max_min_ignore_non_numeric_values() {
+        let v = [
+            HomieValue::Bool(true),
+            HomieValue::Integer(7),
+            HomieValue::String("x".into()),
+            HomieValue::Integer(2),
+        ];
+        assert_eq!(
+            aggregate_max(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(7))
+        );
+        assert_eq!(
+            aggregate_min(v.iter(), HomieDataType::Integer),
+            Some(HomieValue::Integer(2))
+        );
+    }
+}
