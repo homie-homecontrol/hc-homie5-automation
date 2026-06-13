@@ -43,6 +43,19 @@ This rule turns on the living room light at full brightness at 7:00 PM if the mo
 
 The name attribute gives the rule a human-readable name, this is useful for debugging purposes.
 
+## Script timeout
+
+The optional `script_timeout` attribute sets the execution budget for all `run` script actions of the rule (duration string, e.g. `500ms`, `10s`). It overrides the global default configured via `HCACTL_LUA_SCRIPT_TIMEOUT` (5s if unset). A script exceeding its budget is cancelled — this also covers CPU-bound endless loops (`while true do end`) — and the rule action fails with an error naming the rule; subsequent actions and events continue normally.
+
+```yaml
+name: slow_rule
+script_timeout: 30s
+triggers: ...
+actions:
+    - type: run
+      script: ...
+```
+
 ## Triggers
 
 The following trigger types are supported:
@@ -593,6 +606,8 @@ Available fields are:
 | `type`    | "run"             | Defines the action type                                                                         |
 | `script`  | `lua source code` | The lua code to be executed when the rule is triggered. See "Lua Runtime" for more information. |
 | `timer`   | `TimerDefinition` | Every action can be delayed or repeated with a timer. See 'Timer Definition` for more details   |
+
+> Note: script execution is bounded by an execution budget (global default `HCACTL_LUA_SCRIPT_TIMEOUT`, 5s if unset; per-rule override via the rule-level `script_timeout` attribute). Scripts exceeding the budget are cancelled, including CPU-bound endless loops.
 
 ### Example 1:
 

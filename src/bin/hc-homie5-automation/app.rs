@@ -242,6 +242,7 @@ pub async fn initialize_app(
             virtual_devices_watcher_handle: vdevices_watcher_handle,
             meta_watcher_handle,
             lua_files_watcher_handle,
+            lua_script_timeout: settings.app.lua_script_timeout,
         },
     ))
 }

@@ -17,6 +17,10 @@ pub struct Rule {
     pub name: String,
     pub triggers: Vec<RuleTrigger>,
     pub actions: Vec<RuleAction>,
+    /// Optional per-rule execution budget for `run` script actions. Overrides
+    /// the global `lua_script_timeout` setting. Duration string, e.g. `500ms`, `10s`.
+    #[serde(default, deserialize_with = "deserialize_optional_duration")]
+    pub script_timeout: Option<Duration>,
 }
 
 /// Parses a duration string of the form `<integer><unit>`.
@@ -31,15 +35,15 @@ pub struct Rule {
 /// - `d`  — days
 ///
 /// The numeric portion must be a valid `u64`. Any malformed input (unknown
-/// unit, non-integer number, embedded whitespace, empty string, …) returns a
-/// `serde::de::Error` — this function never panics.
-fn parse_duration_str<E>(v: &str) -> Result<Duration, E>
-where
-    E: serde::de::Error,
-{
-    let parse_num = |num: &str| -> Result<u64, E> {
+/// unit, non-integer number, embedded whitespace, empty string, …) returns an
+/// error message — this function never panics.
+///
+/// Public (serde-free) variant so non-serde callers (e.g. the binary's
+/// settings parsing) can reuse the exact same duration syntax.
+pub fn parse_duration(v: &str) -> Result<Duration, String> {
+    let parse_num = |num: &str| -> Result<u64, String> {
         num.parse::<u64>()
-            .map_err(|_| E::custom(format!("invalid duration value: '{}'", v)))
+            .map_err(|_| format!("invalid duration value: '{}'", v))
     };
 
     // Order matters: `ms` must be checked before the bare `s` suffix.
@@ -54,11 +58,16 @@ where
     } else if let Some(num) = v.strip_suffix('d') {
         Ok(Duration::from_secs(parse_num(num)? * 60 * 60 * 24))
     } else {
-        Err(E::custom(format!(
-            "invalid duration unit in '{}' (expected one of: ms, s, m, h, d)",
-            v
-        )))
+        Err(format!("invalid duration unit in '{}' (expected one of: ms, s, m, h, d)", v))
     }
+}
+
+/// serde adapter around [`parse_duration`].
+fn parse_duration_str<E>(v: &str) -> Result<Duration, E>
+where
+    E: serde::de::Error,
+{
+    parse_duration(v).map_err(E::custom)
 }
 
 struct DurationVisitor;

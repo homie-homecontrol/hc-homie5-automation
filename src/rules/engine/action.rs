@@ -14,8 +14,20 @@ use hc_homie5::client::HomieMQTTClient;
 use hc_homie5::value::MappingResult;
 use homie5::{HomieValue, PropertyRef, ToTopic};
 use mlua::ExternalResult;
-use mlua::Lua;
+use mlua::{HookTriggers, Lua, VmState};
 use std::borrow::Cow;
+use std::time::{Duration, Instant};
+
+/// Rule actions taking longer than this are logged with a warning. Actions run
+/// sequentially inline in the event loop (D-7), so a slow action delays all
+/// subsequent events — this makes such stalls visible.
+const SLOW_ACTION_WARN_THRESHOLD: Duration = Duration::from_millis(250);
+
+/// How many Lua VM instructions to execute between deadline checks in the
+/// instruction-count hook. Large enough to keep overhead negligible, small
+/// enough to cancel a CPU-bound busy loop within (sub-)milliseconds of the
+/// deadline.
+const LUA_HOOK_INSTRUCTION_INTERVAL: u32 = 16384;
 
 pub async fn run_rule_actions<'a>(
     rule_hash: ConfigItemHash,
@@ -32,6 +44,7 @@ pub async fn run_rule_actions<'a>(
     log::debug!("{} ({}) -- rule triggered", rule.name, filename);
     for (index, action) in rule.actions.iter().enumerate() {
         log::debug!("{}.action[{}] -- action started", rule.name, index);
+        let started = Instant::now();
         match execute_rule_action(rule_hash, &rule.name, action, &trigger_event, ctx, false).await {
             Ok(_) => {
                 log::debug!("{}.action[{}] -- action finished", rule.name, index);
@@ -39,6 +52,16 @@ pub async fn run_rule_actions<'a>(
             Err(err) => {
                 log::error!("{}.action[{}] -- Error executing rule action no: {}", rule.name, index, err);
             }
+        }
+        let elapsed = started.elapsed();
+        if elapsed > SLOW_ACTION_WARN_THRESHOLD {
+            log::warn!(
+                "{}.action[{}] -- slow rule action took {:?} (threshold {:?}); actions run inline and delay event processing",
+                rule.name,
+                index,
+                elapsed,
+                SLOW_ACTION_WARN_THRESHOLD
+            );
         }
     }
     log::debug!("{} ({}) -- rule finished", rule.name, filename);
@@ -165,7 +188,7 @@ pub async fn execute_rule_action<'a>(
         RuleAction::Run { script, timer } => {
             if ignore_timer || timer.is_none() {
                 log::debug!("{} -- starting script", rule_name);
-                match run_script(script, rule_hash, action, trigger_event, ctx).await {
+                match run_script(script, rule_hash, rule_name, trigger_event, ctx).await {
                     Ok(_) => {
                         log::debug!("{} -- script run successfull", rule_name);
                     }
@@ -257,15 +280,25 @@ async fn handle_timer(
     Ok(())
 }
 
+/// Resolves the effective script execution budget: a per-rule `script_timeout`
+/// overrides the global `lua_script_timeout` default.
+fn effective_script_budget(per_rule: Option<Duration>, global_default: Duration) -> Duration {
+    per_rule.unwrap_or(global_default)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_script(
     script: &str,
     rule_hash: ConfigItemHash,
-    _action: &RuleAction,
+    rule_name: &str,
     trigger_event: &RuleTriggerEvent<'_>,
     ctx: &RuleContext<'_>,
 ) -> mlua::Result<()> {
     log::trace!("preparing script run");
+    let budget = effective_script_budget(
+        ctx.rules.get(&rule_hash).and_then(|rule| rule.script_timeout),
+        ctx.lua_script_timeout,
+    );
     let lua = Lua::new();
 
     let lua_homie = LuaHomie { dm: ctx.dm.clone() };
@@ -302,9 +335,162 @@ pub(crate) async fn run_script(
 
     setup_custom_loader(&lua, ctx.lmm.file_contents()).await?;
 
-    // run the script
-    log::trace!("executing script");
-    lua.load(script).exec_async().await.into_lua_err()?;
+    // run the script with a bounded execution budget
+    log::trace!("executing script (budget {:?})", budget);
+    exec_script_with_budget(&lua, script, budget, rule_name).await?;
     log::trace!("finished executing script");
     Ok(())
+}
+
+/// Executes `script` on `lua` with a hard execution budget enforced two ways:
+///
+/// 1. `tokio::time::timeout` cancels scripts that are blocked on an await
+///    point (e.g. `utils.sleep`, HTTP calls) once the budget elapses.
+/// 2. An instruction-count hook checks a wall-clock deadline every
+///    [`LUA_HOOK_INSTRUCTION_INTERVAL`] VM instructions and errors the script
+///    — this covers CPU-bound busy loops (`while true do end`) that never
+///    reach an await point and therefore can't be cancelled by the timeout.
+///
+/// Dropping the timed-out future is safe: each rule script runs on a fresh
+/// `Lua` VM that is discarded right after execution, so no shared interpreter
+/// state can be left behind in a partially-mutated form.
+async fn exec_script_with_budget(lua: &Lua, script: &str, budget: Duration, rule_name: &str) -> mlua::Result<()> {
+    let deadline = Instant::now() + budget;
+    let hook_rule_name = rule_name.to_owned();
+    // NOTE: must be a *global* hook: `exec_async` drives the chunk on a new
+    // mlua-created coroutine thread, which a plain `set_hook` (current thread
+    // only) would never cover — a CPU-bound busy loop would then hang forever.
+    lua.set_global_hook(
+        HookTriggers::new().every_nth_instruction(LUA_HOOK_INSTRUCTION_INTERVAL),
+        move |_lua, _debug| {
+            if Instant::now() >= deadline {
+                Err(mlua::Error::RuntimeError(format!(
+                    "script for rule '{}' exceeded its execution budget of {:?} (CPU-bound loop cancelled)",
+                    hook_rule_name, budget
+                )))
+            } else {
+                Ok(VmState::Continue)
+            }
+        },
+    )?;
+
+    match tokio::time::timeout(budget, lua.load(script).exec_async()).await {
+        Ok(result) => result.into_lua_err(),
+        Err(_elapsed) => Err(mlua::Error::RuntimeError(format!(
+            "script for rule '{}' exceeded its execution budget of {:?} and was cancelled",
+            rule_name, budget
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod script_timeout_tests {
+    use super::*;
+    use crate::rules::Rule;
+
+    /// Registers a tokio-backed async sleep in the Lua globals. Stand-in for
+    /// `utils.sleep` (whose `LuaUtils` carrier needs a live MQTT client).
+    fn lua_with_sleep() -> Lua {
+        let lua = Lua::new();
+        let sleep = lua
+            .create_async_function(|_, ms: u64| async move {
+                tokio::time::sleep(Duration::from_millis(ms)).await;
+                Ok(())
+            })
+            .expect("create sleep fn");
+        lua.globals().set("sleep_ms", sleep).expect("set sleep fn");
+        lua
+    }
+
+    #[tokio::test]
+    async fn script_timeout_fast_script_unaffected() {
+        let lua = Lua::new();
+        exec_script_with_budget(&lua, "local x = 1 + 1", Duration::from_secs(5), "fast-rule")
+            .await
+            .expect("fast script must run to completion");
+    }
+
+    #[tokio::test]
+    async fn script_timeout_cancels_async_sleep_at_budget() {
+        // Mirrors `utils.sleep(60000)`: blocked on an await point, cancelled
+        // by the tokio timeout once the budget elapses.
+        let lua = lua_with_sleep();
+        let err = exec_script_with_budget(&lua, "sleep_ms(60000)", Duration::from_millis(100), "sleepy-rule")
+            .await
+            .expect_err("script must be cancelled at budget");
+        let msg = err.to_string();
+        assert!(msg.contains("sleepy-rule"), "error must name the rule: {msg}");
+        assert!(msg.contains("cancelled"), "error must state cancellation: {msg}");
+    }
+
+    #[tokio::test]
+    async fn script_timeout_cancels_busy_loop_via_instruction_hook() {
+        // `while true do end` never reaches an await point, so only the
+        // instruction-count hook can stop it.
+        let lua = Lua::new();
+        let started = Instant::now();
+        let err = exec_script_with_budget(&lua, "while true do end", Duration::from_millis(100), "busy-rule")
+            .await
+            .expect_err("busy loop must be cancelled via hook");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "cancellation must happen near the budget, not hang"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("busy-rule"), "error must name the rule: {msg}");
+        assert!(msg.contains("budget"), "error must mention the budget: {msg}");
+    }
+
+    #[tokio::test]
+    async fn script_timeout_per_rule_override_respected() {
+        // Budget resolution: per-rule override wins over the global default.
+        assert_eq!(effective_script_budget(None, Duration::from_secs(5)), Duration::from_secs(5));
+        assert_eq!(
+            effective_script_budget(Some(Duration::from_millis(100)), Duration::from_secs(5)),
+            Duration::from_millis(100)
+        );
+
+        // A sleep the 5s global default tolerates is cancelled under a 100ms
+        // per-rule override...
+        let lua = lua_with_sleep();
+        exec_script_with_budget(&lua, "sleep_ms(1000)", Duration::from_millis(100), "override-rule")
+            .await
+            .expect_err("100ms override must cancel a 1s sleep");
+
+        // ...and allowed again when the budget exceeds the sleep.
+        let lua = lua_with_sleep();
+        exec_script_with_budget(&lua, "sleep_ms(1000)", Duration::from_secs(5), "override-rule")
+            .await
+            .expect("5s budget must allow a 1s sleep");
+    }
+
+    #[test]
+    fn script_timeout_parses_from_rule_yaml() {
+        let rule: Rule = serde_yaml_ng::from_str(
+            r#"
+name: test
+script_timeout: 100ms
+triggers:
+  - timer_id: t1
+actions:
+  - type: run
+    script: print("hi")
+"#,
+        )
+        .expect("rule with script_timeout should deserialize");
+        assert_eq!(rule.script_timeout, Some(Duration::from_millis(100)));
+
+        let rule: Rule = serde_yaml_ng::from_str(
+            r#"
+name: test
+triggers:
+  - timer_id: t1
+actions:
+  - type: run
+    script: print("hi")
+"#,
+        )
+        .expect("rule without script_timeout should deserialize");
+        assert_eq!(rule.script_timeout, None);
+    }
 }

@@ -41,6 +41,9 @@ pub struct AppState {
     pub virtual_devices_watcher_handle: ConfigItemWatcherHandle,
     pub meta_watcher_handle: ConfigItemWatcherHandle,
     pub lua_files_watcher_handle: ConfigItemWatcherHandle,
+    /// Global default execution budget for Lua `run` script actions
+    /// (per-rule `script_timeout` overrides it).
+    pub lua_script_timeout: std::time::Duration,
 }
 
 impl AppState {
@@ -53,6 +56,7 @@ impl AppState {
             mqtt_client: &self.mqtt_client,
             value_store: &self.value_store,
             lmm: &self.lua_module_manager,
+            lua_script_timeout: self.lua_script_timeout,
         }
     }
 

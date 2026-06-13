@@ -2,9 +2,10 @@ use color_eyre::eyre::{self, eyre};
 use homie5::{HomieDomain, HomieID};
 use once_cell::sync::Lazy;
 use simple_kv_store::KubernetesResource;
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, time::Duration};
 
 use hc_homie5::settings::{self, HomieSettings};
+use hc_homie5_automation::rules::parse_duration;
 use hc_homie5_automation::virtual_devices::VirtualDeviceManagerConfig;
 
 // pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| env!("CARGO_CRATE_NAME").replace('-', "_").to_uppercase());
@@ -38,6 +39,22 @@ pub struct AppSettings {
     pub lua_files_config: ConfigBackend,
     pub value_store_config: ValueStoreConfig,
     pub location: LocationConfig,
+    /// Global execution budget for Lua `run` script actions. Rules can
+    /// override it per rule via `script_timeout`. Default: 5s.
+    pub lua_script_timeout: Duration,
+}
+
+/// Newtype so a duration string setting (e.g. `5s`, `500ms`) can be parsed
+/// via [`settings::generic_setting`] (which requires `TryFrom<String>`).
+#[derive(Debug, Clone, Copy)]
+pub struct DurationSetting(pub Duration);
+
+impl TryFrom<String> for DurationSetting {
+    type Error = eyre::Report;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        parse_duration(&value).map(DurationSetting).map_err(|err| eyre!(err))
+    }
 }
 
 /// - `latitude`: Latitude for the solar calculation.
@@ -217,6 +234,12 @@ impl Default for AppSettings {
                     elevation: 0f64,
                 },
             ),
+            lua_script_timeout: settings::generic_setting(
+                &ENV_PREFIX,
+                "LUA_SCRIPT_TIMEOUT",
+                DurationSetting(Duration::from_secs(5)),
+            )
+            .0,
         }
     }
 }
