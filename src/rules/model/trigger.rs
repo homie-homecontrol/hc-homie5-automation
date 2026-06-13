@@ -16,6 +16,21 @@ use hc_homie5::value::ValueCondition;
 
 use super::{deserialize_duration, WhileConditionSet};
 
+// TODO: `deny_unknown_fields` is silently IGNORED by serde on untagged enums
+// (https://serde.rs/container-attrs.html#deny_unknown_fields — "Not supported
+// in combination with untagged"). Each variant below is matched purely by
+// which fields deserialize successfully; unknown/typo'd fields are dropped
+// without error. Risk: a trigger with a misspelled field (e.g. `trigger_valu`)
+// or an extra field can silently match a DIFFERENT, less specific variant (or
+// fail with serde's unhelpful "data did not match any variant" message)
+// instead of producing a precise error. Suggested fix: post-deserialize
+// validation of the raw YAML mapping keys against the matched variant's
+// expected field set, or a manual `Deserialize` impl that dispatches on a
+// distinguishing key (`trigger_value` vs `changed` vs `timer_id` vs
+// `schedule` vs `topic` vs `sun_phase`(+`min_after`/`min_before`) vs
+// `set_value`) and then uses `deny_unknown_fields` per variant struct. Kept
+// as-is for now per plan `plans/hc-homie5-automation-eval-fixes` (D-5: no
+// behavioral change); the attribute itself is harmless.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RuleTrigger {
