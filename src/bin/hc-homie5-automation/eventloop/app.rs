@@ -27,9 +27,19 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
             }
         }
         AppEvent::RebuildGroupDevice(hash) => {
-            // Rebuild handling is wired up in the event loop integration phase
-            // (calls vdm.rebuild_group_device + rule query re-notification).
-            log::debug!("RebuildGroupDevice({hash}) received -- handler not wired up yet");
+            // Debounced rebuild of a materialized group device after member
+            // discovery changes. When the structure actually changed (the
+            // rebuild was not gated away), re-notify rule queries with the
+            // new description so materialized queries pick up added/removed
+            // nodes and properties.
+            if let Some(device_ref) = state.vdm.rebuild_group_device(hash).await? {
+                let vdevices = state.vdm.read().await;
+                if let Some(vdev) = vdevices.get(&device_ref) {
+                    state
+                        .rules
+                        .queries_virtual_device_updated(&device_ref, vdev.description());
+                }
+            }
         }
         AppEvent::Exit => {
             // Stop configuration watchers

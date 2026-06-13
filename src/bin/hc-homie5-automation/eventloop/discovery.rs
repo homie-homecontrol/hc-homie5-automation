@@ -49,6 +49,10 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                             state.vdm.update_compound_members(device_ref, desc).await?;
                         }
 
+                        // schedule debounced rebuilds for group devices this
+                        // device is a member of (no-op for non-members)
+                        state.vdm.source_device_changed(device_ref).await;
+
                         // iterate over all rules and update any materialized queries with the
                         // updated/added device
                         state.rules.queries_device_updated(device_ref, desc);
@@ -60,6 +64,10 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                         // removed device
 
                         state.vdm.update_compound_members_removed(&device.ident).await?;
+
+                        // schedule debounced rebuilds for group devices this
+                        // device was a member of (no-op for non-members)
+                        state.vdm.source_device_removed(&device.ident).await;
 
                         state
                             .rules
