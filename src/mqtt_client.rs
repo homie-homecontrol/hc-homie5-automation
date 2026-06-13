@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use hc_homie5::client::{await_publishes_flushed, FlushTimeout, PendingPublishTracker};
+use hc_homie5::client::{FlushTimeout, PendingPublishObserver, PendingPublishTracker, QueuedPublishCounter};
 use rumqttc::{AsyncClient, ClientError, ConnectionError, MqttOptions, QoS, SubscribeFilter};
 use thiserror::Error;
 use tokio::{
@@ -51,6 +51,28 @@ impl MqttClientHandle {
         self.handle.await??;
         Ok(())
     }
+
+    /// Like [`stop`](Self::stop), but first gives the client task up to
+    /// `grace` to exit on its own.
+    ///
+    /// Use this after requesting a disconnect: the poll loop exits naturally
+    /// once it processes `Outgoing::Disconnect`, sending a clean DISCONNECT
+    /// packet. Signalling stop immediately instead can win the race against
+    /// the still-queued disconnect request and tear down the TCP connection
+    /// uncleanly.
+    pub async fn stop_graceful(mut self, grace: Duration) -> Result<(), MqttClientError> {
+        match tokio::time::timeout(grace, &mut self.handle).await {
+            Ok(res) => {
+                res??;
+                Ok(())
+            }
+            Err(_elapsed) => {
+                let _ = self.stop_sender.send(true);
+                self.handle.await??;
+                Ok(())
+            }
+        }
+    }
 }
 
 pub fn run_mqtt_client(
@@ -62,7 +84,8 @@ pub fn run_mqtt_client(
 
     let (mqtt_client, mut eventloop) = AsyncClient::new(mqttoptions, channel_size);
     let (stop_sender, mut stop_receiver) = watch::channel(false);
-    let (mut pending_publishes, pending_publishes_rx) = PendingPublishTracker::new();
+    let (mut pending_publishes, pending_publishes_observer) = PendingPublishTracker::new();
+    let queued_counter = pending_publishes.queued_counter();
 
     let handle = tokio::task::spawn(async move {
         let mut connected = false;
@@ -123,7 +146,7 @@ pub fn run_mqtt_client(
                         // Nothing can be acknowledged after the disconnect —
                         // release any flush waiters instead of letting them
                         // run into their max_wait.
-                        pending_publishes.clear();
+                        pending_publishes.clear_all();
                         sender.send(MqttClientEvent::Disconnect).await?;
 
                         break;
@@ -139,8 +162,9 @@ pub fn run_mqtt_client(
                     // Connection lost: rumqttc retransmits in-flight QoS>0
                     // publishes itself after reconnecting (re-emitted as
                     // Outgoing::Publish), so drop the stale pkids — they must
-                    // not wedge flush().
-                    pending_publishes.clear();
+                    // not wedge flush(). Queued requests survive in rumqttc's
+                    // request channel and are kept.
+                    pending_publishes.clear_in_flight();
                     log::error!("MQTTClient: Error connecting mqtt. {:#?}", err);
                     sender.send(MqttClientEvent::Error(err)).await?;
                     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -153,7 +177,7 @@ pub fn run_mqtt_client(
     });
     Ok((
         MqttClientHandle { handle, stop_sender },
-        ManagedMqttClient::new(mqtt_client, pending_publishes_rx),
+        ManagedMqttClient::new(mqtt_client, pending_publishes_observer, queued_counter),
         receiver,
     ))
 }
@@ -162,9 +186,11 @@ pub fn run_mqtt_client(
 pub struct ManagedMqttClient {
     client: AsyncClient,
     subscriptions: Arc<RwLock<SubscriptionTracker>>,
-    /// Observes the number of in-flight (unacknowledged) QoS>0 publishes
-    /// tracked by the [`run_mqtt_client`] poll loop.
-    pending_publishes: watch::Receiver<usize>,
+    /// Observes queued plus in-flight (unacknowledged) publishes tracked by
+    /// the [`run_mqtt_client`] poll loop.
+    pending_publishes: PendingPublishObserver,
+    /// Counts publishes enqueued but not yet seen by the poll loop.
+    queued_publishes: QueuedPublishCounter,
 }
 
 /// Refcounted subscription bookkeeping for [`ManagedMqttClient`].
@@ -221,22 +247,27 @@ impl SubscriptionTracker {
 }
 
 impl ManagedMqttClient {
-    pub fn new(client: AsyncClient, pending_publishes: watch::Receiver<usize>) -> Self {
+    pub fn new(
+        client: AsyncClient,
+        pending_publishes: PendingPublishObserver,
+        queued_publishes: QueuedPublishCounter,
+    ) -> Self {
         Self {
             client,
             subscriptions: Arc::new(RwLock::new(SubscriptionTracker::default())),
             pending_publishes,
+            queued_publishes,
         }
     }
 
-    /// Waits until all in-flight QoS>0 publishes have been acknowledged by
-    /// the broker.
+    /// Waits until all publishes issued before this call have been
+    /// acknowledged by the broker.
     ///
     /// Returns immediately when nothing is pending; `max_wait` is only an
     /// upper bound for the dead-broker case. Call this before disconnecting
     /// to guarantee that final messages reached the broker.
     pub async fn flush(&self, max_wait: Duration) -> Result<(), FlushTimeout> {
-        await_publishes_flushed(self.pending_publishes.clone(), max_wait).await
+        self.pending_publishes.flushed(max_wait).await
     }
 
     /// Sends a MQTT Publish to the `EventLoop`.
@@ -245,7 +276,13 @@ impl ManagedMqttClient {
         S: Into<String>,
         V: Into<Vec<u8>>,
     {
-        self.client.publish(topic, qos, retain, payload).await?;
+        // Count before enqueueing so the poll loop can never observe the
+        // request ahead of the counter increment (flush correctness).
+        self.queued_publishes.increment();
+        if let Err(err) = self.client.publish(topic, qos, retain, payload).await {
+            self.queued_publishes.decrement();
+            return Err(err.into());
+        }
         Ok(())
     }
 

@@ -254,13 +254,21 @@ pub async fn deinitialize_app(
 ) -> Result<()> {
     solar_events_handle.stop().await;
 
-    mqtt_client_handle.stop().await?;
+    // After the Exit path requested clean disconnects, each client poll loop
+    // exits on its own once it processes `Outgoing::Disconnect` (sending a
+    // clean DISCONNECT packet so the broker discards the LWT). The graceful
+    // stop waits briefly for that natural exit instead of racing it with the
+    // stop signal, which could tear down the TCP connection uncleanly and
+    // fire the LWT (`$state = lost`).
+    const STOP_GRACE: Duration = Duration::from_secs(2);
+
+    mqtt_client_handle.stop_graceful(STOP_GRACE).await?;
 
     // once the mqtt connection is closed the discovery task will exit.
     // this is to ensure we wait until this happens before discarding the discovery object
-    homie_discovery_client_handle.stop().await?;
+    homie_discovery_client_handle.stop_graceful(STOP_GRACE).await?;
 
-    homie_ctrl_device_client_handle.stop().await?;
+    homie_ctrl_device_client_handle.stop_graceful(STOP_GRACE).await?;
     log::debug!("Deinitialized app...");
 
     Ok(())

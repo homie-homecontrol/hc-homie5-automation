@@ -1,8 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use color_eyre::eyre::{self, eyre, Result};
 use config_watcher::ConfigItemHash;
-use hc_homie5::client::{run_homie_client, HomieClientEvent, HomieClientHandle, MqttClientConfig};
+use hc_homie5::client::{
+    run_homie_client, FlushTimeout, HomieClientEvent, HomieClientHandle, MqttClientConfig, PendingPublishObserver,
+};
 use hc_homie5::device::HomieDevice;
 use hc_homie5::homie_device;
 use homie5::{device_description::DeviceDescriptionBuilder, Homie5ControllerProtocol, HomieValue, PropertyRef};
@@ -37,6 +39,9 @@ pub struct VirtualDeviceManager {
     app_event_sender: mpsc::Sender<AppEvent>,
     index: Arc<RwLock<PropertyIndexer>>,
     files: CfgFilesTracker,
+    /// Observes queued plus in-flight publishes of this manager's device
+    /// client connection (see [`VirtualDeviceManager::flush`]).
+    pending_publishes: PendingPublishObserver,
 }
 
 impl VirtualDeviceManager {
@@ -67,6 +72,8 @@ impl VirtualDeviceManager {
             .name(config.controller_name.clone())
             .build();
 
+        let pending_publishes = device_client_handle.pending_publishes();
+
         Ok((
             Self {
                 status: HomieDeviceStatus::Init,
@@ -81,6 +88,7 @@ impl VirtualDeviceManager {
                 app_event_sender,
                 index,
                 files: CfgFilesTracker::new(),
+                pending_publishes,
             },
             device_client_handle,
             homie_event_receiver,
@@ -322,6 +330,18 @@ impl VirtualDeviceManager {
     pub async fn disconnect_client(&self) -> Result<()> {
         self.homie_client.disconnect().await?;
         Ok(())
+    }
+
+    /// Waits until all in-flight QoS>0 publishes of this manager's device
+    /// client connection (the LWT-bearing one carrying all virtual device
+    /// `$state` updates) have been acknowledged by the broker.
+    ///
+    /// Returns immediately when nothing is pending; `max_wait` is only an
+    /// upper bound for the dead-broker case. Call this before
+    /// [`disconnect_client`](Self::disconnect_client) so the broker discards
+    /// the LWT on the subsequent clean DISCONNECT.
+    pub async fn flush(&self, max_wait: Duration) -> Result<(), FlushTimeout> {
+        self.pending_publishes.flushed(max_wait).await
     }
 
     pub fn as_proxy(&self) -> VirtualDeviceManagerProxy {
