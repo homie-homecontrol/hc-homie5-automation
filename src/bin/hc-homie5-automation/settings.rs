@@ -12,7 +12,8 @@ pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| "HCACTL".to_string());
 
 pub static SETTINGS: Lazy<Settings> = Lazy::new(Settings::default);
 
-pub const CHANNEL_CAPACITY: usize = 65535;
+// Large enough for normal bursts, small enough to expose backpressure instead of hiding stalls.
+pub const CHANNEL_CAPACITY: usize = 1024;
 
 #[derive(Debug)]
 pub struct Settings {

@@ -58,7 +58,7 @@ pub async fn initialize_app(
         .client_id(format!("{}-mqtt", &settings.homie.client_id));
 
     let (mqtt_client_handle, mqtt_client, mqtt_event_receiver) =
-        run_mqtt_client(mqtt_client_options.to_mqtt_options()?, 65535)?;
+        run_mqtt_client(mqtt_client_options.to_mqtt_options()?, CHANNEL_CAPACITY)?;
 
     // Setup homie device for controller
     // =====================================================
