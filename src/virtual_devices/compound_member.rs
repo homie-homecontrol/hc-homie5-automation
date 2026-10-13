@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 use hc_homie5::store::DeviceStore;
 use hc_homie5::value::ValueMatcher;
-use homie5::{device_description::SETTABLE_DEFAULT, HomieValue, PropertyRef};
+use homie5::{
+    device_description::{RETAINED_DEFAULT, SETTABLE_DEFAULT},
+    HomieValue, PropertyRef,
+};
 use std::collections::HashMap;
 
 use hc_homie5::value::{MappingResult, ValueMappingIO, ValueMappingList};
@@ -17,6 +20,8 @@ pub struct PropertyCompoundMember {
     pub(crate) value: Option<HomieValue>,
     pub(crate) mapping: Option<ValueMappingIO<HomieValue, HomieValue>>,
     pub(crate) settable: bool,
+    /// Whether the member property is retained; set commands to non-retained properties use QoS 0.
+    pub(crate) retained: bool,
 }
 
 impl PropertyCompoundMember {
@@ -28,14 +33,14 @@ impl PropertyCompoundMember {
     ) -> Self {
         let value_entry = devices.get_value_entry(prop);
 
-        let settable = devices
+        let (settable, retained) = devices
             .get_device(prop.device_ref())
             .and_then(|d| {
                 d.description
                     .as_ref()
-                    .and_then(|desc| desc.with_property(prop, |p| p.settable))
+                    .and_then(|desc| desc.with_property(prop, |p| (p.settable, p.retained)))
             })
-            .unwrap_or(SETTABLE_DEFAULT);
+            .unwrap_or((SETTABLE_DEFAULT, RETAINED_DEFAULT));
 
         let value = map_value_list(
             value_entry.and_then(|ve| ve.value.as_ref()),
@@ -48,6 +53,7 @@ impl PropertyCompoundMember {
             value,
             mapping,
             settable,
+            retained,
         }
     }
 

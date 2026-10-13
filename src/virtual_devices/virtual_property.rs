@@ -13,7 +13,7 @@ use hc_homie5::util::{DebouncedSender, DelayedSender, UniqueByExt};
 use hc_homie5::value::MappingResult;
 
 use homie5::{
-    device_description::HomieDeviceDescription, DeviceRef, Homie5ControllerProtocol, Homie5DeviceProtocol,
+    client::QoS, device_description::HomieDeviceDescription, DeviceRef, Homie5ControllerProtocol, Homie5DeviceProtocol,
     HomieDataType, HomieValue, PropertyRef, ToTopic,
 };
 use std::{collections::HashMap, iter, time::Duration};
@@ -227,6 +227,7 @@ impl VirtualProperty {
                     && prop_ref.prop_id() == prop_id
                 {
                     pcm.settable = prop_desc.settable;
+                    pcm.retained = prop_desc.retained;
                 }
             }
         }
@@ -392,11 +393,15 @@ impl VirtualProperty {
             self.publish_value(homie_client, homie_proto).await?;
         }
         for (prop_ref, member) in self.prop_compound_members.iter().filter(|(_, pcm)| pcm.settable) {
-            let p = if let Some(mapping) = &member.mapping {
+            let mut p = if let Some(mapping) = &member.mapping {
                 ctrl_proto.set_command(prop_ref, mapping.map_output(&value).unwrap())
             } else {
                 ctrl_proto.set_command(prop_ref, &value)
             };
+            // The convention recommends QoS 0 for set commands to non-retained properties.
+            if !member.retained {
+                p.qos = QoS::AtMostOnce;
+            }
             homie_client.homie_publish(p).await?;
         }
         for (_, member) in self.mqtt_compound_members.iter() {
