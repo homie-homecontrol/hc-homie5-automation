@@ -27,6 +27,28 @@ nodes:
       config:
         settable: true
 ---
+id: wr-waschmaschine
+name: Waschmaschine
+nodes:
+  - from_smarthome:
+      type: switch
+    pass_through: false
+    id: switch
+    name: On/Off
+    properties:
+      - id: state
+        settable: false
+        compound_spec:
+          members:
+            - property: leq0538979/hm-condition-power/decision
+              mapping:
+                in:
+                  - { from: { Integer: 2 }, to: { Bool: true } }
+                  - { to: { Bool: false } }
+                out: []
+      - id: action
+        settable: false
+---
 id: virtual-test-device
 name: virtual test device
 children:

@@ -239,6 +239,9 @@
             },
             "timer": {
               "$ref": "#/definitions/TimerDef"
+            },
+            "script_timeout": {
+              "$ref": "#/definitions/Duration"
             }
           }
         },
@@ -432,7 +435,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["after", "before", "weekdays"],
+          "required": ["after", "before"],
           "properties": {
             "after": {
               "$ref": "#/definitions/TimeOfDay"
@@ -492,7 +495,7 @@
     },
     "Duration": {
       "type": "string",
-      "pattern": "^[0-9]+(ms|s|m|d)$"
+      "pattern": "^[0-9]+(ms|s|m|h|d)$"
     },
     "TimeOfDay": {
       "type": "string",

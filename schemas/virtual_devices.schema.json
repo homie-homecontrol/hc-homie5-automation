@@ -7,7 +7,7 @@
     "VirtualDeviceSpec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "nodes"],
+      "required": ["id"],
       "properties": {
         "id": {
           "$ref": "#/definitions/HomieID"
@@ -35,13 +35,47 @@
           },
           "default": []
         },
+        "group": {
+          "$ref": "#/definitions/GroupSpec"
+        },
         "nodes": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/VirtualNodeSpec"
-          }
+          },
+          "default": []
         }
       }
+    },
+    "GroupSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["devices"],
+      "properties": {
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/HomieID"
+          }
+        },
+        "aggregation_debounce": {
+          "$ref": "#/definitions/Duration"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GroupExclude"
+          },
+          "default": []
+        },
+        "rebuild_debounce": {
+          "$ref": "#/definitions/Duration"
+        }
+      }
+    },
+    "GroupExclude": {
+      "type": "string",
+      "pattern": "^(?!-)[a-z0-9\\-]+(?<!-)(/(?!-)[a-z0-9\\-]+(?<!-))?$"
     },
     "VirtualNodeSpec": {
       "type": "object",
@@ -65,6 +99,9 @@
         },
         "property_opts": {
           "$ref": "#/definitions/VirtualPropertyOptions"
+        },
+        "exclude": {
+          "type": "boolean"
         },
         "properties": {
           "type": "array",
@@ -107,6 +144,9 @@
         "property_opts": {
           "$ref": "#/definitions/VirtualPropertyOptions"
         },
+        "exclude": {
+          "type": "boolean"
+        },
         "compound_spec": {
           "$ref": "#/definitions/CompoundSpec"
         }
@@ -127,13 +167,13 @@
     "CompoundSpec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["members"],
       "properties": {
         "members": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/MemberSpec"
-          }
+          },
+          "default": []
         },
         "mapping": {
           "$ref": "#/definitions/ValueMappingIOHomieValue"
@@ -392,7 +432,7 @@
     },
     "Duration": {
       "type": "string",
-      "pattern": "^[0-9]+(ms|s|m|d)$"
+      "pattern": "^[0-9]+(ms|s|m|h|d)$"
     },
     "HomieID": {
       "type": "string",

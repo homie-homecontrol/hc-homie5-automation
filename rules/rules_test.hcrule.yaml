@@ -88,10 +88,6 @@ name: test-device-test-hello
 triggers:
   - properties:
       - virtual-test-device-hello/switch/action
-      - device_id: device-1
-        node_id: node-2
-        prop_id: prop-1
-        homie_domain: blabla
     set_value: "blah"
 actions:
   - type: run
@@ -171,61 +167,63 @@ actions:
     script: |-
       -- implement actual code to e.g. send a push notification to the user
       print("==> Window open. Please close:", desc.name)
----
-name: rule1b
-triggers:
-  - properties:
-      - dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
-    trigger_value:
-      operator: matchAlways
-  - topic: test/rule1b
-    trigger_value:
-      operator: matchAlways
-actions:
-  - type: map_set
-    targets:
-      - homie5-jupiter/group-4/switch/state
-      - homie5-jupiter/group-2/switch/state
-    mapping:
-      # Map from button property (HomieValue) to Boolean
-      - from:
-          HomieValue:
-            Integer: 2002
-        to:
-          Bool: false
-      # Map from mqtt topic (String) to Boolean
-      - from:
-          String: "off"
-        to:
-          Bool: false
-      # Map anything else to true
-      - to:
-          Bool: true
 
----
-name: rule2b
-triggers:
-  - properties:
-      - homie5-jupiter/dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
-    trigger_value:
-      operator: "="
-      value:
-        Integer: 2002
-actions:
-  - type: run
-    script: |-
-      local m = require("mymod")
-      m.hello()
-      local prop = event.prop
-      print("Prop:", prop)
-      print("From value:", event.from_value)
-      print("Value:", event.value)
-      local t = value_store:get("test")
-      print("ValueStore:", t , type(t))
-      local t2 = t + 1
-      print("t2:", t2 , type(t2))
-      value_store:set("test", t2)
 
+# ---
+# name: rule1b
+# triggers:
+#   - properties:
+#       - dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
+#     trigger_value:
+#       operator: matchAlways
+#   - topic: test/rule1b
+#     trigger_value:
+#       operator: matchAlways
+# actions:
+#   - type: map_set
+#     targets:
+#       - homie5-jupiter/group-4/switch/state
+#       - homie5-jupiter/group-2/switch/state
+#     mapping:
+#       # Map from button property (HomieValue) to Boolean
+#       - from:
+#           HomieValue:
+#             Integer: 2002
+#         to:
+#           Bool: false
+#       # Map from mqtt topic (String) to Boolean
+#       - from:
+#           String: "off"
+#         to:
+#           Bool: false
+#       # Map anything else to true
+#       - to:
+#           Bool: true
+#
+# ---
+# name: rule2b
+# triggers:
+#   - properties:
+#       - homie5-jupiter/dev-b4-35-22-ff-fe-79-10-7b/gesture-sensor/button-event
+#     trigger_value:
+#       operator: "="
+#       value:
+#         Integer: 2002
+# actions:
+#   - type: run
+#     script: |-
+#       local m = require("mymod")
+#       m.hello()
+#       local prop = event.prop
+#       print("Prop:", prop)
+#       print("From value:", event.from_value)
+#       print("Value:", event.value)
+#       local t = value_store:get("test")
+#       print("ValueStore:", t , type(t))
+#       local t2 = t + 1
+#       print("t2:", t2 , type(t2))
+#       value_store:set("test", t2)
+#
 ---
 name: rule3-mqtt-test
 triggers:
