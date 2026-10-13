@@ -38,7 +38,9 @@ pub fn log_homie_message(msg: &Homie5Message) -> String {
         Homie5Message::DeviceState { device, state } => {
             format!("[DeviceState]: Device: [{}], State: [{}]", device.to_topic().build(), state)
         }
-        Homie5Message::DeviceDescription { device, description } => {
+        Homie5Message::DeviceDescription {
+            device, description, ..
+        } => {
             format!(
                 "[DeviceDescription]: Device: [{}], Description: \n{}",
                 device.to_topic().build(),
@@ -77,5 +79,18 @@ pub fn log_homie_message(msg: &Homie5Message) -> String {
             data,
         } => format!("[Broadcast]: homie domain: [{}], subtopic: [{}], data:[{}]", homie_domain, subtopic, data),
         Homie5Message::DeviceRemoval { device } => format!("[DeviceRemoval]: Device: [{}]", device.to_topic().build()),
+        Homie5Message::DeviceDescriptionCleared { device } => {
+            format!("[DeviceDescriptionCleared]: Device: [{}]", device.to_topic().build())
+        }
+        Homie5Message::DeviceAlertCleared { device, alert_id } => {
+            format!("[DeviceAlertCleared]: Device: [{}], id: [{}]", device.to_topic().build(), alert_id)
+        }
+        Homie5Message::PropertyValueCleared { property } => {
+            format!("[PropertyValueCleared]: Property: [{}]", property.to_topic().build())
+        }
+        Homie5Message::PropertyTargetCleared { property } => {
+            format!("[PropertyTargetCleared]: Property: [{}]", property.to_topic().build())
+        }
+        _ => format!("{:?}", msg),
     }
 }
