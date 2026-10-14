@@ -334,7 +334,7 @@ nodes:
       from_smarthome:
           type: button
           config:
-              actions: ["press", "long-press"]
+              actions: ["press-end", "long-press-start"]
       properties:
           - id: action
             compound_spec:
@@ -343,15 +343,15 @@ nodes:
                           topic: zigbee2mqtt/button-1/action
                           mapping:
                               - from: "single"
-                                to: { Enum: "press" }
+                                to: { Enum: "press-end" }
                               - from: "hold"
-                                to: { Enum: "long-press" }
+                                to: { Enum: "long-press-start" }
 ```
 
 **Explanation:**
 
 - The `action` property listens to `zigbee2mqtt/button-1/action`.
-- MQTT values `"single"` and `"hold"` are transformed into Homie-compatible `"press"` and `"long-press"`.
+- MQTT values `"single"` and `"hold"` are transformed into the smarthome button actions `"press-end"` (a click) and `"long-press-start"`.
 
 ---
 
@@ -631,7 +631,7 @@ nodes:
 
 Current implementation supports the following values for `from_smarthome.type`:
 
-`air-quality`, `alarm`, `battery`, `button`, `camera`, `climate`, `color`, `co`, `contact`, `daylight`, `garage-door`, `illuminance`, `level`, `link`, `lock`, `media-info`, `mediaplayer`, `motion`, `orientation`, `powermeter`, `scene`, `shutter`, `smoke`, `switch`, `text`, `thermostat`, `tilt`, `timer`, `valve`, `vibration`, `volume`, `watersensor`.
+`air-quality`, `alarm`, `battery`, `button`, `camera`, `climate`, `color`, `co`, `contact`, `daylight`, `garage-door`, `gesture`, `illuminance`, `level`, `link`, `lock`, `media-info`, `mediaplayer`, `motion`, `orientation`, `powermeter`, `rotary`, `scene`, `selector`, `shutter`, `smoke`, `switch`, `text`, `thermostat`, `tilt`, `timer`, `valve`, `vibration`, `volume`, `watersensor`.
 
 For the exact capabilities, property layouts, and type-specific config options, see:
 `hc-homie5-smarthome` - https://github.com/homie-homecontrol/hc-homie5-smarthome

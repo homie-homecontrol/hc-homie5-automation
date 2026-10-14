@@ -188,7 +188,7 @@ nodes:
     from_smarthome:
       type: button
       config:
-        actions: ["press", "long-press"]
+        actions: ["press-end", "long-press-start"]
     properties:
       - id: action
         compound_spec:
@@ -197,9 +197,9 @@ nodes:
                 topic: zigbee2mqtt/button-1/action
                 mapping:
                   - from: "single"
-                    to: { Enum: "press" }
+                    to: { Enum: "press-end" }
                   - from: "hold"
-                    to: { Enum: "long-press" }
+                    to: { Enum: "long-press-start" }
 ---
 id: motion-aggregator
 name: Motion Detector Group

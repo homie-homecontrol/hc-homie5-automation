@@ -994,7 +994,7 @@ group:
                     None,
                     vec![("color", prop(HomieDataType::Color, HomiePropertyFormat::Color(vec![ColorFormat::Rgb])))],
                 ),
-                ("button", None, vec![("event", prop(HomieDataType::Enum, enum_format(&["press"])))]),
+                ("button", None, vec![("event", prop(HomieDataType::Enum, enum_format(&["press-end"])))]),
             ],
         );
 
@@ -1112,7 +1112,7 @@ nodes:
                         None,
                         vec![
                             ("state", bool_prop(true)),
-                            ("action", prop(HomieDataType::Enum, enum_format(&["press", "hold"]))),
+                            ("action", prop(HomieDataType::Enum, enum_format(&["press-end", "long-press-start"]))),
                         ],
                     ),
                     (

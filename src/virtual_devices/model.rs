@@ -16,6 +16,7 @@ use hc_homie5_smarthome::climate_node::ClimateNodeConfig;
 use hc_homie5_smarthome::color_node::ColorNodeConfig;
 use hc_homie5_smarthome::daylight_node::DaylightNodeConfig;
 use hc_homie5_smarthome::garage_door_node::GarageDoorNodeConfig;
+use hc_homie5_smarthome::gesture_node::GestureNodeConfig;
 use hc_homie5_smarthome::level_node::LevelNodeConfig;
 use hc_homie5_smarthome::link_node::LinkNodeConfig;
 use hc_homie5_smarthome::lock_node::LockNodeConfig;
@@ -23,6 +24,7 @@ use hc_homie5_smarthome::media_info_node::MediaInfoNodeConfig;
 use hc_homie5_smarthome::mediaplayer_node::MediaplayerNodeConfig;
 use hc_homie5_smarthome::powermeter_node::PowermeterNodeConfig;
 use hc_homie5_smarthome::scene_node::SceneNodeConfig;
+use hc_homie5_smarthome::selector_node::SelectorNodeConfig;
 use hc_homie5_smarthome::shutter_node::ShutterNodeConfig;
 use hc_homie5_smarthome::switch_node::SwitchNodeConfig;
 use hc_homie5_smarthome::thermostat_node::ThermostatNodeConfig;
@@ -227,6 +229,7 @@ pub enum SmarthomeSpec {
     Daylight(Option<DaylightNodeConfig>),
     #[serde(rename = "garage-door")]
     GarageDoor(Option<GarageDoorNodeConfig>),
+    Gesture(Option<GestureNodeConfig>),
     Level(Option<LevelNodeConfig>),
     Link(Option<LinkNodeConfig>),
     Lock(Option<LockNodeConfig>),
@@ -235,6 +238,7 @@ pub enum SmarthomeSpec {
     Mediaplayer(Option<MediaplayerNodeConfig>),
     Powermeter(Option<PowermeterNodeConfig>),
     Scene(Option<SceneNodeConfig>),
+    Selector(Option<SelectorNodeConfig>),
     Shutter(Option<ShutterNodeConfig>),
     Switch(Option<SwitchNodeConfig>),
     Thermostat(Option<ThermostatNodeConfig>),
@@ -249,6 +253,7 @@ pub enum SmarthomeSpec {
     Illuminance,
     Motion,
     Orientation,
+    Rotary,
     Smoke,
     Text,
     Tilt,

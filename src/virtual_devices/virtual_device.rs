@@ -10,14 +10,15 @@ use hc_homie5_smarthome::{
     air_quality_node::AirQualityNodeBuilder, alarm_node::AlarmNodeBuilder, battery_node::BatteryNodeBuilder,
     button_node::ButtonNodeBuilder, camera_node::CameraNodeBuilder, climate_node::ClimateNodeBuilder,
     co_node::CoNodeBuilder, color_node::ColorNodeBuilder, contact_node::ContactNodeBuilder,
-    daylight_node::DaylightNodeBuilder, garage_door_node::GarageDoorNodeBuilder,
+    daylight_node::DaylightNodeBuilder, garage_door_node::GarageDoorNodeBuilder, gesture_node::GestureNodeBuilder,
     illuminance_node::IlluminanceNodeBuilder, level_node::LevelNodeBuilder, link_node::LinkNodeBuilder,
     lock_node::LockNodeBuilder, media_info_node::MediaInfoNodeBuilder, mediaplayer_node::MediaplayerNodeBuilder,
     motion_node::MotionNodeBuilder, orientation_node::OrientationNodeBuilder, powermeter_node::PowermeterNodeBuilder,
-    scene_node::SceneNodeBuilder, shutter_node::ShutterNodeBuilder, smoke_node::SmokeNodeBuilder,
-    switch_node::SwitchNodeBuilder, text_node::TextNodeBuilder, thermostat_node::ThermostatNodeBuilder,
-    tilt_node::TiltNodeBuilder, timer_node::TimerNodeBuilder, valve_node::ValveNodeBuilder,
-    vibration_node::VibrationNodeBuilder, volume_node::VolumeNodeBuilder, water_sensor_node::WaterSensorNodeBuilder,
+    rotary_node::RotaryNodeBuilder, scene_node::SceneNodeBuilder, selector_node::SelectorNodeBuilder,
+    shutter_node::ShutterNodeBuilder, smoke_node::SmokeNodeBuilder, switch_node::SwitchNodeBuilder,
+    text_node::TextNodeBuilder, thermostat_node::ThermostatNodeBuilder, tilt_node::TiltNodeBuilder,
+    timer_node::TimerNodeBuilder, valve_node::ValveNodeBuilder, vibration_node::VibrationNodeBuilder,
+    volume_node::VolumeNodeBuilder, water_sensor_node::WaterSensorNodeBuilder,
 };
 use homie5::{device_description::DeviceDescriptionBuilder, HomieValue, PropertyPointer, PropertyRef, ToTopic};
 use tokio::sync::mpsc;
@@ -76,6 +77,7 @@ impl VirtualDevice {
                     SmarthomeSpec::Color(cfg) => ColorNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Daylight(cfg) => DaylightNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::GarageDoor(cfg) => GarageDoorNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Gesture(cfg) => GestureNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Level(cfg) => LevelNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Link(cfg) => LinkNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Lock(cfg) => LockNodeBuilder::new(&cfg.unwrap_or_default()).build(),
@@ -83,6 +85,9 @@ impl VirtualDevice {
                     SmarthomeSpec::Mediaplayer(cfg) => MediaplayerNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Powermeter(cfg) => PowermeterNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Scene(cfg) => SceneNodeBuilder::new(&cfg.unwrap_or_default()).build(),
+                    SmarthomeSpec::Selector(cfg) => SelectorNodeBuilder::new(&cfg.unwrap_or_default())
+                        .map_err(|err| eyre!("invalid selector config for node {node_id}: {err}"))?
+                        .build(),
                     SmarthomeSpec::Shutter(cfg) => ShutterNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Switch(cfg) => SwitchNodeBuilder::new(&cfg.unwrap_or_default()).build(),
                     SmarthomeSpec::Thermostat(cfg) => ThermostatNodeBuilder::new(&cfg.unwrap_or_default()).build(),
@@ -95,6 +100,7 @@ impl VirtualDevice {
                     SmarthomeSpec::Illuminance => IlluminanceNodeBuilder::new().build(),
                     SmarthomeSpec::Motion => MotionNodeBuilder::new().build(),
                     SmarthomeSpec::Orientation => OrientationNodeBuilder::new().build(),
+                    SmarthomeSpec::Rotary => RotaryNodeBuilder::new().build(),
                     SmarthomeSpec::Smoke => SmokeNodeBuilder::new().build(),
                     SmarthomeSpec::Text => TextNodeBuilder::new().build(),
                     SmarthomeSpec::Tilt => TiltNodeBuilder::new().build(),
