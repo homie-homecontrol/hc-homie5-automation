@@ -76,10 +76,10 @@ triggers:
     - properties:
           - living-room-light-switch/button/action
       trigger_value:
-          Enum: "press"
+          Enum: "press-end"
 ```
 
-Triggers when the living room light switch button is pressed.
+Triggers when the living room light switch button is clicked (released after a short press).
 
 ### 2. Property changed
 
