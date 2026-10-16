@@ -4,6 +4,8 @@ use homie5::{HomieColorValue, HomieValue};
 use mlua::{ExternalResult, IntoLua, LuaSerdeExt, Value};
 use mlua::{FromLua, Lua};
 
+use super::check_nesting;
+
 #[derive(Debug, Clone)]
 pub struct LuaHomieValue(pub HomieValue);
 
@@ -36,6 +38,7 @@ impl FromLua for LuaHomieValue {
             Value::Boolean(b) => Ok(LuaHomieValue(HomieValue::Bool(b))),
             Value::Table(ref table) => {
                 // Check if it's a JSON-like table and convert it to JSON
+                check_nesting(&lua_value)?;
                 let json: serde_json::Value = lua.from_value(Value::Table(table.clone())).into_lua_err()?;
                 Ok(LuaHomieValue(HomieValue::JSON(json)))
             }

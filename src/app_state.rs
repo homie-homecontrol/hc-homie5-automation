@@ -50,6 +50,8 @@ pub struct AppState {
     /// Global default execution budget for Lua `run` script actions
     /// (a per-action `script_timeout` on the `run` action overrides it).
     pub lua_script_timeout: std::time::Duration,
+    /// Memory limit in bytes for each Lua script VM; `0` disables it.
+    pub lua_memory_limit: usize,
 }
 
 impl AppState {
@@ -63,6 +65,7 @@ impl AppState {
             value_store: &self.value_store,
             lmm: &self.lua_module_manager,
             lua_script_timeout: self.lua_script_timeout,
+            lua_memory_limit: self.lua_memory_limit,
         }
     }
 

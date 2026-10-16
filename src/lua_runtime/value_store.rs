@@ -1,6 +1,8 @@
 use mlua::{ExternalResult, LuaSerdeExt, ObjectLike, UserData};
 use simple_kv_store::{normalize_key, KeyValueStore};
 
+use super::check_nesting;
+
 pub struct LuaValueStore {
     pub store: KeyValueStore,
 }
@@ -23,6 +25,7 @@ impl UserData for LuaValueStore {
                 }
             } else {
                 // Normal JSON serialization for everything else
+                check_nesting(&value)?;
                 lua.from_value::<serde_json::Value>(value)?
             };
 

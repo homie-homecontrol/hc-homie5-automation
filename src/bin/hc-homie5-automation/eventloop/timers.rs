@@ -1,6 +1,7 @@
 use color_eyre::eyre::Result;
 use hc_homie5_automation::{
     app_state::AppState,
+    panic_guard::contain,
     rules::{execute_rule_action, run_timer_rules},
     timer_manager::TimerEvent,
 };
@@ -22,12 +23,17 @@ pub async fn handle_timer_event(event: TimerEvent, state: &mut AppState) -> Resu
         let Some(name) = state.rules.get(&event.rule_hash).map(|r| r.name.as_str()) else {
             return Ok(false);
         };
-        match execute_rule_action(event.rule_hash, name, &action, &trigger_event, &state.as_rule_ctx(), true).await {
-            Ok(_) => {
+        match contain(execute_rule_action(event.rule_hash, name, &action, &trigger_event, &state.as_rule_ctx(), true))
+            .await
+        {
+            Ok(Ok(_)) => {
                 log::debug!("{} -- Rule completed: {}", name, name);
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 log::error!("{} -- Error executing rule: {}", name, err);
+            }
+            Err(panic) => {
+                log::error!("{} -- Delayed rule action panicked, skipped: {}", name, panic);
             }
         }
     }

@@ -3,6 +3,7 @@ use rumqttc::QoS;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use super::check_nesting;
 use crate::mqtt_client::ManagedMqttClient;
 
 /// Shared HTTP client for all Lua `http_*` utility functions.
@@ -51,6 +52,7 @@ impl UserData for LuaUtils {
             lua.to_value(&json_value)
         });
         methods.add_async_method("to_json", |lua, _, data: mlua::Table| async move {
+            check_nesting(&mlua::Value::Table(data.clone()))?;
             let s = serde_json::to_string(&data).into_lua_err()?;
             lua.to_value(&s)
         });
@@ -66,12 +68,14 @@ impl UserData for LuaUtils {
             Ok(LuaHttpBody(text))
         });
         methods.add_async_method("http_post_json", |_, _, (uri, data): (String, mlua::Table)| async move {
+            check_nesting(&mlua::Value::Table(data.clone()))?;
             let response = http_client()?.post(&uri).json(&data).send().await.into_lua_err()?;
 
             let text = response.text().await.into_lua_err()?;
             Ok(LuaHttpBody(text))
         });
         methods.add_async_method("http_post_form", |_, _, (uri, data): (String, mlua::Table)| async move {
+            check_nesting(&mlua::Value::Table(data.clone()))?;
             let response = http_client()?.post(&uri).form(&data).send().await.into_lua_err()?;
 
             let text = response.text().await.into_lua_err()?;

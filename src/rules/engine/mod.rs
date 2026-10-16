@@ -36,4 +36,6 @@ pub struct RuleContext<'a> {
     /// Global default execution budget for Lua `run` script actions.
     /// A per-action `script_timeout` on the `run` action overrides this.
     pub lua_script_timeout: std::time::Duration,
+    /// Memory limit in bytes for each Lua script VM; `0` disables it.
+    pub lua_memory_limit: usize,
 }

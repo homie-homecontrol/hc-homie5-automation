@@ -1,7 +1,8 @@
 use super::RuleContext;
 use crate::lua_runtime::{
-    setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDevice,
+    new_sandboxed_lua, setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDevice,
 };
+use crate::panic_guard::contain;
 use crate::rules::{MapSetFrom, RuleAction, TimerDef};
 use crate::solar_events::SolarEvent;
 use crate::{
@@ -45,12 +46,15 @@ pub async fn run_rule_actions<'a>(
     for (index, action) in rule.actions.iter().enumerate() {
         log::debug!("{}.action[{}] -- action started", rule.name, index);
         let started = Instant::now();
-        match execute_rule_action(rule_hash, &rule.name, action, &trigger_event, ctx, false).await {
-            Ok(_) => {
+        match contain(execute_rule_action(rule_hash, &rule.name, action, &trigger_event, ctx, false)).await {
+            Ok(Ok(_)) => {
                 log::debug!("{}.action[{}] -- action finished", rule.name, index);
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 log::error!("{}.action[{}] -- Error executing rule action no: {}", rule.name, index, err);
+            }
+            Err(panic) => {
+                log::error!("{}.action[{}] -- rule action panicked, skipped: {}", rule.name, index, panic);
             }
         }
         let elapsed = started.elapsed();
@@ -302,7 +306,7 @@ pub(crate) async fn run_script(
 ) -> mlua::Result<()> {
     log::trace!("preparing script run");
     let budget = effective_script_budget(script_timeout, ctx.lua_script_timeout);
-    let lua = Lua::new();
+    let lua = new_sandboxed_lua(ctx.lua_memory_limit)?;
 
     let lua_homie = LuaHomie { dm: ctx.dm.clone() };
     let lua_virtual_device = LuaVirtualDevice {
@@ -508,5 +512,93 @@ actions:
             panic!("expected run action");
         };
         assert_eq!(*script_timeout, Some(Duration::from_secs(2)));
+    }
+}
+
+#[cfg(test)]
+mod script_containment_tests {
+    use super::*;
+    use crate::lua_runtime::{LuaHomieValue, DEFAULT_LUA_MEMORY_LIMIT};
+
+    /// A sandboxed VM with `explode()`, a Rust callback that panics like a failing HTTP client
+    /// build did in hc-homie5-automation 0.4.0.
+    fn lua_with_panicking_callback() -> Lua {
+        let lua = new_sandboxed_lua(DEFAULT_LUA_MEMORY_LIMIT).expect("sandboxed lua");
+        let explode = lua
+            .create_async_function(|_, ()| async move {
+                tokio::task::yield_now().await;
+                if true {
+                    panic!("callback exploded");
+                }
+                Ok(())
+            })
+            .expect("create explode fn");
+        lua.globals().set("explode", explode).expect("set explode fn");
+        lua
+    }
+
+    #[tokio::test]
+    async fn sandboxed_script_cannot_exit_the_process() {
+        let lua = new_sandboxed_lua(DEFAULT_LUA_MEMORY_LIMIT).unwrap();
+        let err = exec_script_with_budget(&lua, "os.exit(1)", Duration::from_secs(5), "exit-rule")
+            .await
+            .expect_err("os.exit must not be callable");
+        assert!(err.to_string().contains("exit"), "{err}");
+        let err = exec_script_with_budget(&lua, "io.popen('kill 1')", Duration::from_secs(5), "popen-rule")
+            .await
+            .expect_err("io must not be available");
+        assert!(err.to_string().contains("io"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn panicking_callback_is_contained_without_pcall() {
+        let lua = lua_with_panicking_callback();
+        let result = contain(exec_script_with_budget(&lua, "explode()", Duration::from_secs(5), "boom-rule")).await;
+        let failed = match result {
+            Err(panic) => panic.message.contains("callback exploded"),
+            Ok(Err(err)) => err.to_string().contains("callback exploded"),
+            Ok(Ok(())) => false,
+        };
+        assert!(failed, "the panic must surface as a contained failure");
+    }
+
+    #[tokio::test]
+    async fn panicking_callback_is_catchable_with_pcall() {
+        let lua = lua_with_panicking_callback();
+        let result = contain(exec_script_with_budget(
+            &lua,
+            "local ok, err = pcall(explode); assert(not ok); assert(tostring(err):find('callback exploded'))",
+            Duration::from_secs(5),
+            "pcall-rule",
+        ))
+        .await;
+        assert!(matches!(result, Ok(Ok(()))), "pcall must catch the panic: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn runaway_allocation_fails_the_script_only() {
+        let lua = new_sandboxed_lua(8 * 1024 * 1024).unwrap();
+        let err = exec_script_with_budget(
+            &lua,
+            "local t = {}; while true do t[#t + 1] = string.rep('x', 1024) end",
+            Duration::from_secs(5),
+            "alloc-rule",
+        )
+        .await
+        .expect_err("allocation must hit the memory limit");
+        assert!(err.to_string().contains("not enough memory"), "{err}");
+    }
+
+    #[test]
+    fn deeply_nested_table_is_rejected_as_homie_value() {
+        let lua = new_sandboxed_lua(DEFAULT_LUA_MEMORY_LIMIT).unwrap();
+        let table: mlua::Value = lua
+            .load("local t = {}; local c = t; for i = 1, 100000 do c.x = {}; c = c.x end; return t")
+            .eval()
+            .unwrap();
+        let err = <LuaHomieValue as mlua::FromLua>::from_lua(table, &lua).expect_err("nesting limit");
+        assert!(err.to_string().contains("nesting"), "{err}");
+        let flat: mlua::Value = lua.load("return { a = 1, b = { c = 'x' } }").eval().unwrap();
+        assert!(<LuaHomieValue as mlua::FromLua>::from_lua(flat, &lua).is_ok());
     }
 }
