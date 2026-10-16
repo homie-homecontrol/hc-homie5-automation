@@ -52,9 +52,10 @@ RUN cargo build --release && \
 # Stage 4: Minimal Runtime Image
 FROM debian:bookworm-slim AS runtime
 
-# Install runtime dependencies
+# Install runtime dependencies (ca-certificates: the HTTP client used by Lua scripts cannot be
+# built without system CA certificates)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    lua5.4 liblua5.4-0 libssl3 && \
+    ca-certificates lua5.4 liblua5.4-0 libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN useradd --no-create-home --shell /usr/sbin/nologin appuser
