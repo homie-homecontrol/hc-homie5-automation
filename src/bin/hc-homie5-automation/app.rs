@@ -5,6 +5,7 @@ use hc_homie5_automation::{
     app_state::{AppEvent, AppState, ConnectionState},
     lua_runtime::LuaModuleManager,
     meta::{MetaConfig, MetaManager},
+    panic_guard::contain_sync,
     utils::throttle_channel,
 };
 use homie5::set_fallback_homie_domain;
@@ -26,6 +27,13 @@ use hc_homie5_automation::{
     timer_manager::TimerManager,
     virtual_devices::{VirtualDeviceManager, VirtualDeviceSpec},
 };
+/// Deserializes one configuration document; a panic while deserializing is reported as an error
+/// for that document instead of terminating the controller.
+fn parse_document<T: serde::de::DeserializeOwned>(doc: &str) -> std::result::Result<T, serde_yaml_ng::Error> {
+    contain_sync(|| serde_yaml_ng::from_str(doc))
+        .unwrap_or_else(|panic| Err(<serde_yaml_ng::Error as serde::de::Error>::custom(panic)))
+}
+
 pub struct LuaFileTokenizer;
 
 impl Tokenizer for LuaFileTokenizer {
@@ -126,7 +134,7 @@ pub async fn initialize_app(
     // Setup configuration watchers
     // =====================================================
 
-    let deserialize_rules = |doc: &str| serde_yaml_ng::from_str(doc);
+    let deserialize_rules = |doc: &str| parse_document::<Rule>(doc);
 
     let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
         || run_config_backend(settings, &settings.app.rules_config, "Rules", "rules", "*.yaml", "-cfg-r"),
@@ -134,7 +142,7 @@ pub async fn initialize_app(
         deserialize_rules,
     )?;
 
-    let deserialize_virtual_devices = |doc: &str| serde_yaml_ng::from_str(doc);
+    let deserialize_virtual_devices = |doc: &str| parse_document::<VirtualDeviceSpec>(doc);
 
     let (vdevices_watcher_handle, vdevices_receiver) = run_config_item_watcher::<VirtualDeviceSpec, _>(
         || {
@@ -169,7 +177,7 @@ pub async fn initialize_app(
     )?;
 
     let deserialize_meta = |doc: &str| -> std::result::Result<MetaConfig, String> {
-        serde_yaml_ng::from_str::<MetaConfig>(doc).map_err(|err| {
+        parse_document::<MetaConfig>(doc).map_err(|err| {
             let preview = doc.lines().take(3).collect::<Vec<_>>().join(" | ");
             let msg = format!(
                 "Meta overlay parse error: {}. Hint: annotation values must be strings or string arrays. Document preview: {}",
@@ -243,6 +251,7 @@ pub async fn initialize_app(
             meta_watcher_handle,
             lua_files_watcher_handle,
             lua_script_timeout: settings.app.lua_script_timeout,
+            lua_memory_limit: settings.app.lua_memory_limit,
         },
     ))
 }

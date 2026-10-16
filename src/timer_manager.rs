@@ -1,7 +1,7 @@
 use config_watcher::ConfigItemHash;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 use tokio::{
@@ -9,7 +9,12 @@ use tokio::{
     task::JoinHandle,
 };
 
+use crate::panic_guard::contain;
 use crate::rules::{RuleAction, RuleTriggerEvent};
+
+/// Longest accepted timer duration or repeat interval (100 years); longer values are clamped so
+/// deadline arithmetic cannot overflow.
+pub const MAX_TIMER_DURATION: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
 
 #[derive(Debug)]
 pub struct Timer {
@@ -61,6 +66,8 @@ impl TimerManager {
         // re-entrant).
         self.cancel_timer(&id);
 
+        let (duration, repeat) = normalize_timer_durations(&id, duration, repeat);
+
         let timers = Arc::clone(&self.timers);
         let sender = self.sender.clone();
         let id_task = id.clone();
@@ -111,7 +118,7 @@ impl TimerManager {
             }
 
             // Remove the timer from the manager once it's done
-            timers.lock().unwrap().remove(&id_task);
+            timers.lock().unwrap_or_else(PoisonError::into_inner).remove(&id_task);
         };
 
         let timer_id = id.clone();
@@ -129,7 +136,7 @@ impl TimerManager {
 
     /// Cancels a timer by ID
     pub fn cancel_timer(&self, id: &str) {
-        let mut timers = self.timers.lock().unwrap();
+        let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(timer) = timers.remove(id) {
             // Cancel the timer by aborting the task
             timer.handle.abort();
@@ -138,7 +145,7 @@ impl TimerManager {
     }
 
     pub fn remove_timers_for_rule(&self, rule_hash: ConfigItemHash) {
-        let mut timers = self.timers.lock().unwrap();
+        let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         timers.retain(|id, timer| {
             if timer.rule_hash == rule_hash {
                 timer.handle.abort();
@@ -151,11 +158,24 @@ impl TimerManager {
     }
     pub fn clear(&self) {
         log::debug!("Removing all timers");
-        let mut timers = self.timers.lock().unwrap();
+        let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         for (_, timer) in timers.drain() {
             timer.handle.abort();
         }
     }
+}
+
+/// Clamps `duration` and `repeat` to [`MAX_TIMER_DURATION`] and turns a zero repeat interval into
+/// a one-shot timer; `tokio::time::interval` panics on a zero period.
+fn normalize_timer_durations(id: &str, duration: Duration, repeat: Option<Duration>) -> (Duration, Option<Duration>) {
+    let repeat = match repeat {
+        Some(interval) if interval.is_zero() => {
+            log::warn!("Timer {} has a zero repeat interval; it fires once", id);
+            None
+        }
+        other => other.map(|interval| interval.min(MAX_TIMER_DURATION)),
+    };
+    (duration.min(MAX_TIMER_DURATION), repeat)
 }
 
 /// Spawns `body` as a task and registers its [`JoinHandle`] in `timers` under a
@@ -174,15 +194,19 @@ fn spawn_and_register<V>(
     make_entry: impl FnOnce(JoinHandle<()>) -> V,
     body: impl std::future::Future<Output = ()> + Send + 'static,
 ) {
-    let mut guard = timers.lock().unwrap();
-    let handle = tokio::spawn(body);
+    let mut guard = timers.lock().unwrap_or_else(PoisonError::into_inner);
+    let handle = tokio::spawn(async move {
+        if let Err(panic) = contain(body).await {
+            log::error!("Timer task panicked: {}", panic);
+        }
+    });
     guard.insert(id, make_entry(handle));
     // guard dropped here, after the insert
 }
 
 #[cfg(test)]
 mod timer_manager_tests {
-    use super::spawn_and_register;
+    use super::{normalize_timer_durations, spawn_and_register, MAX_TIMER_DURATION};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -242,5 +266,26 @@ mod timer_manager_tests {
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert!(rx.try_recv().is_err(), "cancelled timer must not deliver an event");
         assert!(timers.lock().unwrap().is_empty(), "cancelled timer must be removed from the map");
+    }
+
+    #[test]
+    fn zero_repeat_becomes_one_shot() {
+        let (duration, repeat) = normalize_timer_durations("t", Duration::from_secs(5), Some(Duration::ZERO));
+        assert_eq!(duration, Duration::from_secs(5));
+        assert_eq!(repeat, None);
+    }
+
+    #[test]
+    fn huge_durations_are_clamped() {
+        let (duration, repeat) = normalize_timer_durations("t", Duration::MAX, Some(Duration::MAX));
+        assert_eq!(duration, MAX_TIMER_DURATION);
+        assert_eq!(repeat, Some(MAX_TIMER_DURATION));
+    }
+
+    #[tokio::test]
+    async fn clamped_repeat_interval_can_be_created() {
+        let (_, repeat) = normalize_timer_durations("t", Duration::ZERO, Some(Duration::MAX));
+        let mut interval = tokio::time::interval(repeat.unwrap());
+        interval.tick().await;
     }
 }

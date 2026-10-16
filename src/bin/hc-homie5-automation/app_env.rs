@@ -45,6 +45,13 @@ fn project_directory() -> Option<ProjectDirs> {
 pub fn initialize_panic_handler() -> Result<()> {
     // Set up a custom panic hook
     std::panic::set_hook(Box::new(move |panic_info| {
+        // Panics from rules, Lua, virtual devices, or configuration are caught by their guard
+        // (see `panic_guard`); log them and let the controller continue.
+        if hc_homie5_automation::panic_guard::panic_is_contained() {
+            log::error!("Contained panic: {}", panic_info);
+            return;
+        }
+
         #[cfg(not(debug_assertions))]
         {
             use human_panic::{handle_dump, print_msg, Metadata};

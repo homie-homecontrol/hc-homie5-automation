@@ -5,6 +5,7 @@ use simple_kv_store::KubernetesResource;
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
 use hc_homie5::settings::{self, HomieSettings};
+use hc_homie5_automation::lua_runtime::DEFAULT_LUA_MEMORY_LIMIT;
 use hc_homie5_automation::rules::parse_duration;
 use hc_homie5_automation::virtual_devices::VirtualDeviceManagerConfig;
 
@@ -50,6 +51,8 @@ pub struct AppSettings {
     /// Global execution budget for Lua `run` script actions. Individual `run`
     /// actions can override it via `script_timeout`. Default: 5s.
     pub lua_script_timeout: Duration,
+    /// Memory limit in bytes for each Lua script VM; `0` disables it. Default: 64 MiB.
+    pub lua_memory_limit: usize,
     /// Debounce window for controller children updates. Bursts of virtual
     /// device creations/removals republish the controller description only
     /// once per quiet period. `0` disables debouncing (publish immediately).
@@ -61,6 +64,25 @@ pub struct AppSettings {
 /// via [`settings::generic_setting`] (which requires `TryFrom<String>`).
 #[derive(Debug, Clone, Copy)]
 pub struct DurationSetting(pub Duration);
+
+/// Size setting given in whole mebibytes (e.g. `64`), stored in bytes.
+#[derive(Debug, Clone, Copy)]
+pub struct MebibytesSetting(pub usize);
+
+impl TryFrom<String> for MebibytesSetting {
+    type Error = eyre::Report;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let mebibytes: usize = value
+            .trim()
+            .parse()
+            .map_err(|err| eyre!("invalid size in MiB [{}]: {}", value, err))?;
+        mebibytes
+            .checked_mul(1024 * 1024)
+            .map(MebibytesSetting)
+            .ok_or_else(|| eyre!("size in MiB [{}] is too large", value))
+    }
+}
 
 impl TryFrom<String> for DurationSetting {
     type Error = eyre::Report;
@@ -251,6 +273,12 @@ impl Default for AppSettings {
                 &ENV_PREFIX,
                 "LUA_SCRIPT_TIMEOUT",
                 DurationSetting(Duration::from_secs(5)),
+            )
+            .0,
+            lua_memory_limit: settings::generic_setting(
+                &ENV_PREFIX,
+                "LUA_MEMORY_LIMIT_MB",
+                MebibytesSetting(DEFAULT_LUA_MEMORY_LIMIT),
             )
             .0,
             controller_children_debounce: settings::generic_setting(

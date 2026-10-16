@@ -4,13 +4,15 @@ use cron::Schedule;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, PoisonError},
     time::SystemTime,
 };
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
     task::JoinHandle,
 };
+
+use crate::panic_guard::contain;
 
 #[derive(Debug)]
 pub struct ScheduledCron {
@@ -58,47 +60,24 @@ impl CronManager {
         let task_cron_schedule = cron_schedule.to_string();
 
         // Spawn a new task for the timer
+        let task_id = id.clone();
         let handle = tokio::spawn(async move {
-            let Ok(schedule) = Schedule::from_str(&task_cron_schedule) else {
-                log::error!("Invalid cron expression: [{}] - 7 fields required, like [* * * * * * *] (sec, min, hour, day of month, month, day of week, year)", task_cron_schedule);
-                return;
-            };
-
-            // Iterate over the schedule and send events
-            for next in schedule.upcoming(Utc) {
-                // Calculate the delay
-                let now: DateTime<Utc> = SystemTime::now().into();
-                let delay = (next - now)
-                    .to_std()
-                    .unwrap_or_else(|_| std::time::Duration::from_secs(0));
-
-                log::debug!("{} - next execution at: {}", id_task, next.with_timezone(&Local));
-                tokio::time::sleep(delay).await;
-
-                // Send the event via the channel
-                if let Err(err) = sender
-                    .send(CronEvent {
-                        id: id_task.clone(),
-                        rule_hash,
-                        trigger_index,
-                    })
-                    .await
-                {
-                    log::error!("Error sending cron event: {:?}", err);
-                }
+            let schedule_task = run_cron_schedule(task_cron_schedule, id_task, rule_hash, trigger_index, sender);
+            if let Err(panic) = contain(schedule_task).await {
+                log::error!("Cron schedule {} panicked and stopped: {}", task_id, panic);
             }
         });
 
         // Store the handle in the hashmap
         self.cron_schedules
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .insert(id.clone(), ScheduledCron { id, rule_hash, handle });
     }
 
     /// Cancels a timer by ID
     pub fn cancel_cron_schedule(&self, id: &str) {
-        let mut cron_schedules = self.cron_schedules.lock().unwrap();
+        let mut cron_schedules = self.cron_schedules.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(schedule) = cron_schedules.remove(id) {
             // Cancel the timer by aborting the task
             schedule.handle.abort();
@@ -107,7 +86,7 @@ impl CronManager {
     }
 
     pub fn remove_cron_schedule_for_rule(&self, rule_hash: ConfigItemHash) {
-        let mut cron_schedules = self.cron_schedules.lock().unwrap();
+        let mut cron_schedules = self.cron_schedules.lock().unwrap_or_else(PoisonError::into_inner);
         cron_schedules.retain(|id, schedule| {
             if schedule.rule_hash == rule_hash {
                 schedule.handle.abort();
@@ -121,9 +100,50 @@ impl CronManager {
 
     pub fn clear(&self) {
         log::debug!("Removing all cron schedules");
-        let mut cron_schedules = self.cron_schedules.lock().unwrap();
+        let mut cron_schedules = self.cron_schedules.lock().unwrap_or_else(PoisonError::into_inner);
         for (_, schedule) in cron_schedules.drain() {
             schedule.handle.abort();
+        }
+    }
+}
+
+/// Sends a [`CronEvent`] at every upcoming time of `cron_schedule` until the schedule ends.
+async fn run_cron_schedule(
+    cron_schedule: String,
+    id: String,
+    rule_hash: ConfigItemHash,
+    trigger_index: usize,
+    sender: Sender<CronEvent>,
+) {
+    let Ok(schedule) = Schedule::from_str(&cron_schedule) else {
+        log::error!(
+            "Invalid cron expression: [{}] - 7 fields required, like [* * * * * * *] (sec, min, hour, day of month, month, day of week, year)",
+            cron_schedule
+        );
+        return;
+    };
+
+    // Iterate over the schedule and send events
+    for next in schedule.upcoming(Utc) {
+        // Calculate the delay
+        let now: DateTime<Utc> = SystemTime::now().into();
+        let delay = (next - now)
+            .to_std()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0));
+
+        log::debug!("{} - next execution at: {}", id, next.with_timezone(&Local));
+        tokio::time::sleep(delay).await;
+
+        // Send the event via the channel
+        if let Err(err) = sender
+            .send(CronEvent {
+                id: id.clone(),
+                rule_hash,
+                trigger_index,
+            })
+            .await
+        {
+            log::error!("Error sending cron event: {:?}", err);
         }
     }
 }

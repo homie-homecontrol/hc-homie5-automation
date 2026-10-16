@@ -23,6 +23,20 @@ Think of a script execution as a short-lived function call with injected helpers
 
 This model makes script behavior deterministic and easier to reason about, especially under frequent events.
 
+## Sandbox And Limits
+
+Scripts cannot stop or damage the controller:
+
+- `os` provides only `time`, `date`, `clock`, and `difftime`. `os.exit`, `os.execute`, `os.getenv`, and the file functions are removed, as are `io`, `dofile`, `loadfile`, and `package.loadlib`.
+- `load` compiles text chunks only; precompiled bytecode is rejected.
+- `require` finds modules only through the configured Lua module backend, never on disk.
+- Each VM has a memory limit (`HCACTL_LUA_MEMORY_LIMIT_MB`, default 64). Exceeding it fails the script with `not enough memory`.
+- Tables passed to `utils:to_json`, `utils:http_post_json`, `utils:http_post_form`, `value_store:set`, or as a Homie value may nest at most 64 levels.
+- The execution budget (`HCACTL_LUA_SCRIPT_TIMEOUT`, `script_timeout`) cancels long-running scripts.
+- A Rust panic inside a helper becomes a Lua error that `pcall` can catch; otherwise it fails only the current action.
+
+A failing script logs an error for its action; later actions of the rule and all other events continue.
+
 ## Lua Modules (`require`)
 
 You can split shared logic into reusable modules and import them with `require(...)`.

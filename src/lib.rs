@@ -6,6 +6,7 @@ pub mod homie;
 pub mod lua_runtime;
 pub mod meta;
 pub mod mqtt_client;
+pub mod panic_guard;
 pub mod rule_manager;
 pub mod rules;
 pub mod solar_events;

@@ -11,6 +11,7 @@ use hc_homie5_automation::{
     cron_manager::CronEvent,
     meta::MetaConfig,
     mqtt_client::MqttClientEvent,
+    panic_guard::contain,
     rules::Rule,
     solar_events::SolarEvent,
     timer_manager::TimerEvent,
@@ -63,28 +64,22 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
         } else {
             Duration::from_secs(60)
         };
-        let exit = match event_multiplexer.next(timeout).await {
-            Event::App(app_event) => handle_app_event(app_event, state).await?,
-            Event::DiscoveryClient(homie_client_event) => {
-                handle_discovery_client_event(homie_client_event, state).await?
+        let event = event_multiplexer.next(timeout).await;
+        let is_exit_event = matches!(event, Event::App(AppEvent::Exit));
+        let source = event_source(&event);
+
+        // A failing or panicking handler must not stop the controller: log it and continue with
+        // the next event. Only the exit event ends the loop, even if its cleanup fails.
+        let exit = match contain(handle_event(event, state)).await {
+            Ok(Ok(exit)) => exit,
+            Ok(Err(err)) => {
+                log::error!("Error while handling {} event: {:#}", source, err);
+                is_exit_event
             }
-            Event::RulesChanges(config_file_event) => handle_rules_changes_event(config_file_event, state).await?,
-            Event::VirtualDevicesChanges(config_file_event) => {
-                handle_virtual_devices_changes_event(config_file_event, state).await?
+            Err(panic) => {
+                log::error!("Handling {} event panicked: {}", source, panic);
+                is_exit_event
             }
-            Event::VirtualDevicesClient(homie_client_event) => {
-                handle_virtual_devices_client_event(homie_client_event, state).await?
-            }
-            Event::LuaFilesChanges(config_file_event) => {
-                handle_lua_files_changes_event(config_file_event, state).await?
-            }
-            Event::MetaChanges(config_file_event) => handle_meta_changes_event(config_file_event, state).await?,
-            Event::TimerEvent(timer_event) => handle_timer_event(timer_event, state).await?,
-            Event::CronEvent(cron_event) => handle_cron_event(cron_event, state).await?,
-            Event::MqttClientEvent(mqtt_event) => handle_mqtt_client_event(mqtt_event, state).await?,
-            Event::SolarEvent(solar_event) => handle_solar_event(solar_event, state).await?,
-            Event::Timeout => state.should_exit,
-            Event::None => false,
         };
 
         if exit {
@@ -93,4 +88,44 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
     }
     log::debug!("Exiting application event loop");
     Ok(())
+}
+
+async fn handle_event(event: Event, state: &mut AppState) -> Result<bool> {
+    Ok(match event {
+        Event::App(app_event) => handle_app_event(app_event, state).await?,
+        Event::DiscoveryClient(homie_client_event) => handle_discovery_client_event(homie_client_event, state).await?,
+        Event::RulesChanges(config_file_event) => handle_rules_changes_event(config_file_event, state).await?,
+        Event::VirtualDevicesChanges(config_file_event) => {
+            handle_virtual_devices_changes_event(config_file_event, state).await?
+        }
+        Event::VirtualDevicesClient(homie_client_event) => {
+            handle_virtual_devices_client_event(homie_client_event, state).await?
+        }
+        Event::LuaFilesChanges(config_file_event) => handle_lua_files_changes_event(config_file_event, state).await?,
+        Event::MetaChanges(config_file_event) => handle_meta_changes_event(config_file_event, state).await?,
+        Event::TimerEvent(timer_event) => handle_timer_event(timer_event, state).await?,
+        Event::CronEvent(cron_event) => handle_cron_event(cron_event, state).await?,
+        Event::MqttClientEvent(mqtt_event) => handle_mqtt_client_event(mqtt_event, state).await?,
+        Event::SolarEvent(solar_event) => handle_solar_event(solar_event, state).await?,
+        Event::Timeout => state.should_exit,
+        Event::None => false,
+    })
+}
+
+fn event_source(event: &Event) -> &'static str {
+    match event {
+        Event::App(_) => "app",
+        Event::DiscoveryClient(_) => "discovery client",
+        Event::VirtualDevicesClient(_) => "virtual devices client",
+        Event::RulesChanges(_) => "rules config",
+        Event::VirtualDevicesChanges(_) => "virtual devices config",
+        Event::LuaFilesChanges(_) => "Lua modules config",
+        Event::MetaChanges(_) => "meta config",
+        Event::TimerEvent(_) => "timer",
+        Event::CronEvent(_) => "cron",
+        Event::MqttClientEvent(_) => "MQTT client",
+        Event::SolarEvent(_) => "solar",
+        Event::Timeout => "timeout",
+        Event::None => "empty",
+    }
 }

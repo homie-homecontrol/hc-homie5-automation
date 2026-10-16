@@ -3,6 +3,7 @@ use rumqttc::QoS;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use super::check_nesting;
 use crate::mqtt_client::ManagedMqttClient;
 
 /// Shared HTTP client for all Lua `http_*` utility functions.
@@ -11,7 +12,18 @@ use crate::mqtt_client::ManagedMqttClient;
 /// per request (as was done previously) defeats pooling and re-does TLS
 /// setup on every call. A single lazily-initialized client is cheap to clone
 /// internally (Arc) and safe to use from concurrent script executions.
-static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+///
+/// Building the client can fail, for example without system CA certificates;
+/// `reqwest::Client::new` would panic then, so the error is kept and returned
+/// to the script instead.
+static HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> =
+    LazyLock::new(|| reqwest::Client::builder().build().map_err(|err| err.to_string()));
+
+fn http_client() -> mlua::Result<&'static reqwest::Client> {
+    HTTP_CLIENT
+        .as_ref()
+        .map_err(|err| mlua::Error::RuntimeError(format!("HTTP client unavailable: {err}")))
+}
 
 pub struct LuaHttpBody(String);
 
@@ -40,28 +52,31 @@ impl UserData for LuaUtils {
             lua.to_value(&json_value)
         });
         methods.add_async_method("to_json", |lua, _, data: mlua::Table| async move {
+            check_nesting(&mlua::Value::Table(data.clone()))?;
             let s = serde_json::to_string(&data).into_lua_err()?;
             lua.to_value(&s)
         });
         methods.add_async_method("http_get", |_, _, uri: String| async move {
-            let response = HTTP_CLIENT.get(&uri).send().await.into_lua_err()?;
+            let response = http_client()?.get(&uri).send().await.into_lua_err()?;
             let text = response.text().await.into_lua_err()?;
             Ok(LuaHttpBody(text))
         });
         methods.add_async_method("http_post", |_, _, (uri, data): (String, String)| async move {
-            let response = HTTP_CLIENT.post(&uri).body(data).send().await.into_lua_err()?;
+            let response = http_client()?.post(&uri).body(data).send().await.into_lua_err()?;
 
             let text = response.text().await.into_lua_err()?;
             Ok(LuaHttpBody(text))
         });
         methods.add_async_method("http_post_json", |_, _, (uri, data): (String, mlua::Table)| async move {
-            let response = HTTP_CLIENT.post(&uri).json(&data).send().await.into_lua_err()?;
+            check_nesting(&mlua::Value::Table(data.clone()))?;
+            let response = http_client()?.post(&uri).json(&data).send().await.into_lua_err()?;
 
             let text = response.text().await.into_lua_err()?;
             Ok(LuaHttpBody(text))
         });
         methods.add_async_method("http_post_form", |_, _, (uri, data): (String, mlua::Table)| async move {
-            let response = HTTP_CLIENT.post(&uri).form(&data).send().await.into_lua_err()?;
+            check_nesting(&mlua::Value::Table(data.clone()))?;
+            let response = http_client()?.post(&uri).form(&data).send().await.into_lua_err()?;
 
             let text = response.text().await.into_lua_err()?;
             Ok(LuaHttpBody(text))
