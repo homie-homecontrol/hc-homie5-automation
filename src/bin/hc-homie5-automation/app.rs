@@ -100,6 +100,7 @@ pub async fn initialize_app(
         lua_script_timeout_ms = settings.app.lua_script_timeout.as_millis() as u64,
         lua_memory_limit_mb = settings.app.lua_memory_limit / (1024 * 1024),
         controller_children_debounce_ms = settings.app.controller_children_debounce.as_millis() as u64,
+        rule_max_firings_per_sec = settings.app.rule_max_firings_per_sec,
         "configuration loaded"
     );
 
@@ -249,7 +250,7 @@ pub async fn initialize_app(
         solar_event_handler,
         AppState {
             dm,
-            rules: RuleManager::new(),
+            rules: RuleManager::with_max_firings_per_sec(settings.app.rule_max_firings_per_sec),
             vdm,
             timers,
             solar_events,

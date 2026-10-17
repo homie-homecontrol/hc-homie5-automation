@@ -1,4 +1,4 @@
-use super::RuleContext;
+use super::{FiringDecision, RuleContext, FIRING_WINDOW};
 use crate::lua_runtime::{
     install_print, new_sandboxed_lua, setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore,
     LuaVirtualDevice,
@@ -38,6 +38,17 @@ pub async fn run_rule_actions<'a>(
     trigger_event: RuleTriggerEvent<'a>,
     ctx: &RuleContext<'a>,
 ) {
+    if let FiringDecision::Limited { first_in_window } = ctx.rules.check_firing(rule_hash, Instant::now()) {
+        if first_in_window {
+            tracing::warn!(
+                rule = %rule.name,
+                trigger = trigger_event.trigger_type(),
+                window_ms = FIRING_WINDOW.as_millis() as u64,
+                "rule fires too often; skipping further firings in this window"
+            );
+        }
+        return;
+    }
     let filename = ctx
         .rules
         .get_filename(rule_hash)

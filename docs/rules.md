@@ -816,3 +816,12 @@ actions:
 ```
 
 This example publishes a custom scene control message to an MQTT topic, which can be used to control custom scenes or devices that do not follow the standard Homie protocol.
+
+> Note: an `mqtt` action whose topic matches one of the rule's own MQTT trigger topics makes the rule trigger itself. See [Self-triggering rules](#self-triggering-rules).
+
+## Self-triggering rules
+
+A rule whose actions cause its own triggers to fire again loops endlessly, for example an MQTT trigger on `sensors/#` with an `mqtt` action publishing to `sensors/echo`. Two safeguards apply:
+
+- **Load-time warning:** when a rule is loaded, the controller logs a warning naming the rule, the action topic and the trigger topic filter if one of its `mqtt` actions publishes to a topic matched by one of its own MQTT triggers. Only topics written in the rule are checked; publishes from Lua scripts (`utils:mqtt_publish`), loops across several rules and property loops (set → changed → set) are not detected at load time.
+- **Runtime rate limit:** each rule may fire at most `HCACTL_RULE_MAX_FIRINGS_PER_SEC` times per second (default `20`, `0` disables the limit, see [setup_config.md](setup_config.md)). Firings beyond the limit within the same second are skipped, and one warning per second names the rule. The limit applies to every trigger type, so it also stops loops through Lua scripts, other rules or properties.

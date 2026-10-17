@@ -1,6 +1,7 @@
 // modules
 mod action;
 mod cron;
+mod firing_limiter;
 mod mqtt;
 mod properties;
 mod queries;
@@ -12,6 +13,7 @@ mod while_condition;
 // re-exports
 pub use action::*;
 pub use cron::*;
+pub use firing_limiter::*;
 pub use mqtt::*;
 pub use properties::*;
 pub use queries::*;

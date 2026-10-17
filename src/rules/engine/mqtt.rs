@@ -1,7 +1,7 @@
 use super::{matching_rules, run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 use crate::{
     mqtt_client::{ManagedMqttClient, MqttPublishEvent},
-    rules::{Rule, RuleTrigger},
+    rules::{Rule, RuleAction, RuleTrigger},
 };
 use color_eyre::eyre::Result;
 use hc_homie5::client::HomieMQTTClient;
@@ -79,6 +79,32 @@ pub async fn unsubscribe_mqtt_trigger(rule: &Rule, mqtt_client: &ManagedMqttClie
     }
     Ok(())
 }
+/// `(action topic, trigger filter)` pairs where one of the rule's `mqtt` actions publishes into
+/// one of its own MQTT trigger filters, so the rule triggers itself.
+pub fn self_triggering_mqtt_actions(rule: &Rule) -> Vec<(&str, &str)> {
+    let filters: Vec<&str> = rule
+        .triggers
+        .iter()
+        .filter_map(|trigger| match trigger {
+            RuleTrigger::MqttTrigger { topic, .. } => Some(topic.as_str()),
+            _ => None,
+        })
+        .collect();
+    rule.actions
+        .iter()
+        .filter_map(|action| match action {
+            RuleAction::Mqtt { topic, .. } => Some(topic.as_str()),
+            _ => None,
+        })
+        .flat_map(|topic| {
+            filters
+                .iter()
+                .filter(move |filter| mqtt_topic_match(filter, topic))
+                .map(move |filter| (topic, *filter))
+        })
+        .collect()
+}
+
 /// Matches an MQTT topic against a topic filter following the MQTT spec
 /// wildcard rules:
 ///
@@ -169,5 +195,48 @@ mod topic_match_tests {
         for (filter, topic, expected) in cases {
             assert_eq!(mqtt_topic_match(filter, topic), expected, "filter={:?} topic={:?}", filter, topic);
         }
+    }
+}
+
+#[cfg(test)]
+mod self_trigger_tests {
+    use super::self_triggering_mqtt_actions;
+    use crate::rules::parse_rule;
+
+    #[test]
+    fn mqtt_action_into_own_wildcard_trigger_is_reported() {
+        let rule = parse_rule(
+            "name: echo
+triggers:
+  - topic: sensors/#
+    trigger_value: 'on'
+actions:
+  - type: mqtt
+    topic: sensors/echo
+    value: x
+  - type: mqtt
+    topic: other/topic
+    value: x
+",
+        )
+        .unwrap();
+        assert_eq!(self_triggering_mqtt_actions(&rule), vec![("sensors/echo", "sensors/#")]);
+    }
+
+    #[test]
+    fn mqtt_action_outside_trigger_filters_is_not_reported() {
+        let rule = parse_rule(
+            "name: forward
+triggers:
+  - topic: sensors/+/state
+    trigger_value: 'on'
+actions:
+  - type: mqtt
+    topic: sensors/a/command
+    value: x
+",
+        )
+        .unwrap();
+        assert!(self_triggering_mqtt_actions(&rule).is_empty());
     }
 }

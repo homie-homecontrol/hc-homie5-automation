@@ -7,7 +7,7 @@ use std::{fmt, path::PathBuf, str::FromStr, time::Duration};
 use hc_homie5::client::MqttClientConfig;
 use hc_homie5::settings::{self, HomieSettings};
 use hc_homie5_automation::lua_runtime::DEFAULT_LUA_MEMORY_LIMIT;
-use hc_homie5_automation::rules::parse_duration;
+use hc_homie5_automation::rules::{parse_duration, DEFAULT_MAX_FIRINGS_PER_SEC};
 use hc_homie5_automation::virtual_devices::VirtualDeviceManagerConfig;
 
 // pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| env!("CARGO_CRATE_NAME").replace('-', "_").to_uppercase());
@@ -60,6 +60,10 @@ pub struct AppSettings {
     /// once per quiet period. `0` disables debouncing (publish immediately).
     /// Default: 200ms.
     pub controller_children_debounce: Duration,
+    /// Maximum firings per second of a single rule; further firings within the second are
+    /// skipped with one warning. Guards against rules that trigger themselves. `0` disables it.
+    /// Default: 20.
+    pub rule_max_firings_per_sec: u32,
 }
 
 /// Newtype so a duration string setting (e.g. `5s`, `500ms`) can be parsed
@@ -70,6 +74,22 @@ pub struct DurationSetting(pub Duration);
 /// Size setting given in whole mebibytes (e.g. `64`), stored in bytes.
 #[derive(Debug, Clone, Copy)]
 pub struct MebibytesSetting(pub usize);
+
+/// Non-negative count setting (e.g. `20`).
+#[derive(Debug, Clone, Copy)]
+pub struct CountSetting(pub u32);
+
+impl TryFrom<String> for CountSetting {
+    type Error = eyre::Report;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value
+            .trim()
+            .parse()
+            .map(CountSetting)
+            .map_err(|err| eyre!("invalid count [{}]: {}", value, err))
+    }
+}
 
 impl TryFrom<String> for MebibytesSetting {
     type Error = eyre::Report;
@@ -322,6 +342,12 @@ impl Default for AppSettings {
                 DurationSetting(Duration::from_millis(200)),
             )
             .0,
+            rule_max_firings_per_sec: settings::generic_setting(
+                &ENV_PREFIX,
+                "RULE_MAX_FIRINGS_PER_SEC",
+                CountSetting(DEFAULT_MAX_FIRINGS_PER_SEC),
+            )
+            .0,
         }
     }
 }
@@ -370,6 +396,14 @@ mod tests {
         let config = mqtt_client_config(&homie);
         assert_eq!(config.keep_alive, KEEP_ALIVE_SECS);
         assert_eq!(config.to_mqtt_options().unwrap().keep_alive(), Duration::from_secs(KEEP_ALIVE_SECS));
+    }
+
+    #[test]
+    fn count_setting_parses_non_negative_integers() {
+        assert_eq!(CountSetting::try_from(" 20 ".to_string()).unwrap().0, 20);
+        assert_eq!(CountSetting::try_from("0".to_string()).unwrap().0, 0);
+        assert!(CountSetting::try_from("-1".to_string()).is_err());
+        assert!(CountSetting::try_from("many".to_string()).is_err());
     }
 
     #[test]
