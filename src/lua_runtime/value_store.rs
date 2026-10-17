@@ -19,7 +19,6 @@ impl UserData for LuaValueStore {
                         serde_json::Value::String(lua_str) // Store as a string
                     }
                     Err(_) => {
-                        log::error!("Error in script: unsupported userdata type (no __tostring metamethod)");
                         return Err(mlua::Error::external("Unsupported userdata type (no __tostring metamethod)"));
                     }
                 }

@@ -1,7 +1,8 @@
+use hc_homie5::logging::{truncate, PAYLOAD_MAX};
 use mlua::{ExternalResult, LuaSerdeExt, UserData};
 use rumqttc::QoS;
 use std::sync::LazyLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::check_nesting;
 use crate::mqtt_client::ManagedMqttClient;
@@ -25,6 +26,25 @@ fn http_client() -> mlua::Result<&'static reqwest::Client> {
         .map_err(|err| mlua::Error::RuntimeError(format!("HTTP client unavailable: {err}")))
 }
 
+/// Sends an HTTP request of a script and logs its outcome. Only the URL's origin is logged: paths
+/// and queries can carry tokens.
+async fn send_http(rule: &str, method: &str, uri: &str, request: reqwest::RequestBuilder) -> mlua::Result<LuaHttpBody> {
+    let started = Instant::now();
+    let response = request.send().await.into_lua_err()?;
+    let status = response.status();
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let host = reqwest::Url::parse(uri)
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_default();
+    if status.is_success() {
+        tracing::info!(rule = %rule, method, host = %host, status = status.as_u16(), duration_ms, "http request sent");
+    } else {
+        tracing::warn!(rule = %rule, method, host = %host, status = status.as_u16(), duration_ms, "http request failed");
+    }
+    let text = response.text().await.into_lua_err()?;
+    Ok(LuaHttpBody(text))
+}
+
 pub struct LuaHttpBody(String);
 
 impl UserData for LuaHttpBody {
@@ -39,6 +59,8 @@ impl UserData for LuaHttpBody {
 
 pub struct LuaUtils {
     pub mqtt_client: ManagedMqttClient,
+    /// Name of the rule running the script, for logs.
+    pub rule: String,
 }
 
 impl UserData for LuaUtils {
@@ -56,30 +78,19 @@ impl UserData for LuaUtils {
             let s = serde_json::to_string(&data).into_lua_err()?;
             lua.to_value(&s)
         });
-        methods.add_async_method("http_get", |_, _, uri: String| async move {
-            let response = http_client()?.get(&uri).send().await.into_lua_err()?;
-            let text = response.text().await.into_lua_err()?;
-            Ok(LuaHttpBody(text))
+        methods.add_async_method("http_get", |_, this, uri: String| async move {
+            send_http(&this.rule, "GET", &uri, http_client()?.get(&uri)).await
         });
-        methods.add_async_method("http_post", |_, _, (uri, data): (String, String)| async move {
-            let response = http_client()?.post(&uri).body(data).send().await.into_lua_err()?;
-
-            let text = response.text().await.into_lua_err()?;
-            Ok(LuaHttpBody(text))
+        methods.add_async_method("http_post", |_, this, (uri, data): (String, String)| async move {
+            send_http(&this.rule, "POST", &uri, http_client()?.post(&uri).body(data)).await
         });
-        methods.add_async_method("http_post_json", |_, _, (uri, data): (String, mlua::Table)| async move {
+        methods.add_async_method("http_post_json", |_, this, (uri, data): (String, mlua::Table)| async move {
             check_nesting(&mlua::Value::Table(data.clone()))?;
-            let response = http_client()?.post(&uri).json(&data).send().await.into_lua_err()?;
-
-            let text = response.text().await.into_lua_err()?;
-            Ok(LuaHttpBody(text))
+            send_http(&this.rule, "POST", &uri, http_client()?.post(&uri).json(&data)).await
         });
-        methods.add_async_method("http_post_form", |_, _, (uri, data): (String, mlua::Table)| async move {
+        methods.add_async_method("http_post_form", |_, this, (uri, data): (String, mlua::Table)| async move {
             check_nesting(&mlua::Value::Table(data.clone()))?;
-            let response = http_client()?.post(&uri).form(&data).send().await.into_lua_err()?;
-
-            let text = response.text().await.into_lua_err()?;
-            Ok(LuaHttpBody(text))
+            send_http(&this.rule, "POST", &uri, http_client()?.post(&uri).form(&data)).await
         });
         methods.add_async_method(
             "mqtt_publish",
@@ -91,10 +102,19 @@ impl UserData for LuaUtils {
                     _ => QoS::AtMostOnce,
                 };
                 let retained = retained.unwrap_or(false);
+                let logged_payload = truncate(&payload, PAYLOAD_MAX);
                 this.mqtt_client
-                    .publish(topic, qos, retained, payload)
+                    .publish(topic.as_str(), qos, retained, payload)
                     .await
                     .into_lua_err()?;
+                tracing::info!(
+                    rule = %this.rule,
+                    topic = %topic,
+                    payload = logged_payload,
+                    retain = retained,
+                    source = "lua",
+                    "message published"
+                );
                 Ok(())
             },
         );

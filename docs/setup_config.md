@@ -44,6 +44,19 @@ Settings are passed via environment variables. The environment variables are pre
 > - For direct binary runs, application defaults are relative paths like `file:./rules`, `file:./virtual_devices`, `file:./meta`, and `file:./lua`.
 > - Container deployments usually set explicit absolute paths via environment variables.
 
+### Logging
+
+| Variable            | Purpose                                                                                         | Valid Values                                       | Default | Example                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------- | ------------------------------------------------ |
+| `HCACTL_LOG_LEVEL`  | Log level of the automation controller; all other crates log at `warn`                          | `off`, `error`, `warn`, `info`, `debug`, `trace`   | `info`  | `"debug"`                                        |
+| `RUST_LOG`          | Full log filter; overrides `HCACTL_LOG_LEVEL`                                                   | `tracing` EnvFilter directives                     | (unset) | `"warn,hc_homie5_automation=debug,hc_homie5=debug"` |
+| `HCACTL_LOG_FORMAT` | Output format                                                                                   | `text`, `json` (one object per line)               | `text`  | `"json"`                                         |
+| `NO_COLOR`          | Disables colored output (color is only used when stdout is a terminal)                          | any value                                          | (unset) | `"1"`                                            |
+
+At `info` the log shows what the controller did: rules loaded and fired, commands sent, messages
+published, HTTP requests of Lua scripts, devices added or removed, alerts, and connection changes.
+`debug` adds the reasons (timers, trigger decisions, set commands received, Lua `print` output).
+
 ### Rules, Virtual Devices, Meta and Lua Modules config backends
 
 For rules, virtual devices, manual metadata overlays and lua modules `hc-homie5-automation` supports multiple backends as input.
@@ -167,7 +180,7 @@ services:
             HCACTL_META_CONFIG: file:./data/meta
             HCACTL_LUA_MODULE_CONFIG: file:./data/lua
             HCACTL_VALUE_STORE_CONFIG: sqlite:./data/store/data.db
-            HCACTL_LOGLEVEL: debug,info,warn,error
+            HCACTL_LOG_LEVEL: info
             TZ: "Europe/Berlin"
         volumes:
             - ./rules:/service/data/rules

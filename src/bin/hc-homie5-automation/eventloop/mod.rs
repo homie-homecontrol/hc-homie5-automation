@@ -6,6 +6,7 @@ use cron::handle_cron_event;
 use discovery::handle_discovery_client_event;
 use hc_homie5::client::HomieClientEvent;
 use hc_homie5::define_event_multiplexer;
+use hc_homie5::logging::{chain, Outage};
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState},
     cron_manager::CronEvent,
@@ -24,6 +25,8 @@ use rules::handle_rules_changes_event;
 use solar::handle_solar_event;
 use timers::handle_timer_event;
 use virtual_devices::{handle_virtual_devices_changes_event, handle_virtual_devices_client_event};
+
+use crate::settings::SETTINGS;
 
 mod app;
 mod cron;
@@ -73,11 +76,11 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
         let exit = match contain(handle_event(event, state)).await {
             Ok(Ok(exit)) => exit,
             Ok(Err(err)) => {
-                log::error!("Error while handling {} event: {:#}", source, err);
+                tracing::error!(event = source, error = chain(err.as_ref()), "event handling failed");
                 is_exit_event
             }
             Err(panic) => {
-                log::error!("Handling {} event panicked: {}", source, panic);
+                tracing::error!(event = source, error = chain(&panic), "event handling panicked");
                 is_exit_event
             }
         };
@@ -86,8 +89,82 @@ pub async fn run_event_loop(event_multiplexer: &mut EventMultiPlexer, state: &mu
             break;
         }
     }
-    log::debug!("Exiting application event loop");
+    tracing::debug!("event loop stopped");
     Ok(())
+}
+
+/// One of the controller's MQTT connections, for connection logs.
+#[derive(Clone, Copy)]
+pub(crate) enum MqttConnection {
+    Discovery,
+    VirtualDevices,
+    Mqtt,
+}
+
+impl MqttConnection {
+    fn name(self) -> &'static str {
+        match self {
+            MqttConnection::Discovery => "discovery",
+            MqttConnection::VirtualDevices => "virtual-devices",
+            MqttConnection::Mqtt => "mqtt",
+        }
+    }
+
+    fn client_id(self) -> String {
+        let client_id = &SETTINGS.homie.client_id;
+        match self {
+            MqttConnection::Discovery => client_id.clone(),
+            MqttConnection::VirtualDevices => format!("{client_id}-ctrl"),
+            MqttConnection::Mqtt => format!("{client_id}-mqtt"),
+        }
+    }
+
+    /// Logs an established connection; INFO with the outage duration when it ends an outage.
+    pub(crate) fn connected(self, outage: &mut Outage) {
+        let broker = broker();
+        let client_id = self.client_id();
+        match outage.recover() {
+            Some(down) => tracing::info!(
+                connection = self.name(),
+                client_id = %client_id,
+                broker = %broker,
+                outage_secs = down.as_secs(),
+                "MQTT connection restored"
+            ),
+            None => {
+                tracing::info!(connection = self.name(), client_id = %client_id, broker = %broker, "MQTT connected")
+            }
+        }
+    }
+
+    /// Logs a failed connection attempt: WARN when the outage starts, DEBUG for every retry.
+    pub(crate) fn failed(self, outage: &mut Outage, err: &(dyn std::error::Error + 'static)) {
+        if outage.fail() {
+            tracing::warn!(
+                connection = self.name(),
+                client_id = %self.client_id(),
+                broker = %broker(),
+                error = chain(err),
+                "MQTT broker unreachable"
+            );
+        } else {
+            tracing::debug!(
+                connection = self.name(),
+                attempt = outage.failures(),
+                error = chain(err),
+                "MQTT reconnect failed"
+            );
+        }
+    }
+
+    /// Logs a client task that ended outside of a shutdown; the connection is not retried.
+    pub(crate) fn stopped(self) {
+        tracing::error!(connection = self.name(), "MQTT client stopped");
+    }
+}
+
+fn broker() -> String {
+    format!("{}:{}", SETTINGS.homie.hostname, SETTINGS.homie.port)
 }
 
 async fn handle_event(event: Event, state: &mut AppState) -> Result<bool> {

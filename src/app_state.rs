@@ -1,6 +1,7 @@
 use config_watcher::{ConfigItemHash, ConfigItemWatcherHandle};
 pub use hc_homie5::connection::{ConnectionEvent, ConnectionState};
 use hc_homie5::controller::MetaOverlayHandler;
+use hc_homie5::logging::{chain, Outage};
 use homie5::{DeviceRef, PropertyRef};
 use simple_kv_store::KeyValueStore;
 use tokio::sync::mpsc::Sender;
@@ -52,6 +53,12 @@ pub struct AppState {
     pub lua_script_timeout: std::time::Duration,
     /// Memory limit in bytes for each Lua script VM; `0` disables it.
     pub lua_memory_limit: usize,
+    /// Broker outages of the discovery, virtual devices, and generic MQTT connections.
+    pub discovery_outage: Outage,
+    pub virtual_devices_outage: Outage,
+    pub mqtt_outage: Outage,
+    /// Set once the config watchers were started for the first time.
+    pub watchers_started: bool,
 }
 
 impl AppState {
@@ -69,42 +76,24 @@ impl AppState {
         }
     }
 
-    pub async fn start_watchers(&self) {
+    pub async fn start_watchers(&mut self) {
         if let (ConnectionState::Connected, ConnectionState::Connected, ConnectionState::Connected) =
             (self.discovery_state, self.mqtt_state, self.virtual_devices_state)
         {
-            match self.rule_watcher_handle.start().await {
-                Ok(_) => {
-                    log::debug!("Started rule config watcher");
-                }
-                Err(e) => {
-                    log::error!("Error starting rule config watcher. {e:?}");
-                }
-            }
-            match self.virtual_devices_watcher_handle.start().await {
-                Ok(_) => {
-                    log::debug!("Started virtual devices config watcher");
-                }
-                Err(e) => {
-                    log::error!("Error starting virtual devices config watcher. {:?}", e);
+            let watchers = [
+                ("rules", &self.rule_watcher_handle),
+                ("virtual devices", &self.virtual_devices_watcher_handle),
+                ("lua modules", &self.lua_files_watcher_handle),
+                ("meta", &self.meta_watcher_handle),
+            ];
+            for (config, watcher) in watchers {
+                if let Err(err) = watcher.start().await {
+                    tracing::error!(config, error = chain(&err), "cannot start config watcher");
                 }
             }
-            match self.lua_files_watcher_handle.start().await {
-                Ok(_) => {
-                    log::debug!("Started lua module config watcher");
-                }
-                Err(e) => {
-                    log::error!("Error starting lua module config watcher. {:?}", e);
-                }
-            }
-
-            match self.meta_watcher_handle.start().await {
-                Ok(_) => {
-                    log::debug!("Started meta config watcher");
-                }
-                Err(e) => {
-                    log::error!("Error starting meta config watcher. {:?}", e);
-                }
+            if !self.watchers_started {
+                self.watchers_started = true;
+                tracing::info!("config watchers started");
             }
         }
     }

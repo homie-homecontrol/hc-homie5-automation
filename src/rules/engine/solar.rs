@@ -4,6 +4,7 @@ use crate::{
     solar_events::{SolarEvent, SolarEventManager, SolarEventTrigger},
 };
 use config_watcher::ConfigItemHash;
+use hc_homie5::logging::chain;
 use hc_homie5::store::DeviceStore;
 
 pub async fn run_solar_rules(event: &SolarEvent, ctx: &RuleContext<'_>) {
@@ -97,7 +98,7 @@ pub async fn add_solar_triggers(rule_hash: ConfigItemHash, rule: &Rule, solar_ma
                     })
                     .await
                 {
-                    log::warn!("Error adding solar event trigger: {}", err)
+                    tracing::error!(rule = %rule.name, error = chain(err.as_ref()), "cannot add solar trigger")
                 }
             }
             RuleTrigger::SolarEventTriggerAfter {
@@ -112,7 +113,7 @@ pub async fn add_solar_triggers(rule_hash: ConfigItemHash, rule: &Rule, solar_ma
                     })
                     .await
                 {
-                    log::warn!("Error adding solar event trigger: {}", err)
+                    tracing::error!(rule = %rule.name, error = chain(err.as_ref()), "cannot add solar trigger")
                 }
             }
             RuleTrigger::SolarEventTriggerBefore {
@@ -127,7 +128,7 @@ pub async fn add_solar_triggers(rule_hash: ConfigItemHash, rule: &Rule, solar_ma
                     })
                     .await
                 {
-                    log::warn!("Error adding solar event trigger: {}", err)
+                    tracing::error!(rule = %rule.name, error = chain(err.as_ref()), "cannot add solar trigger")
                 }
             }
             _ => (),

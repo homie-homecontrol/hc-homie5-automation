@@ -1,9 +1,12 @@
 use super::{LuaDeviceRef, LuaHomieValue, LuaPropertyRef};
 use crate::device_manager::DeviceManager;
+use hc_homie5::logging::{truncate, PAYLOAD_MAX};
 use mlua::{ExternalResult, LuaSerdeExt, UserData};
 
 pub struct LuaHomie {
     pub dm: DeviceManager,
+    /// Name of the rule running the script, for logs.
+    pub rule: String,
 }
 
 impl UserData for LuaHomie {
@@ -13,7 +16,17 @@ impl UserData for LuaHomie {
             |_, homie, (subject, value): (mlua::Value, LuaHomieValue)| async move {
                 // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
                 let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
-                homie.dm.set_command(&prop.0, &value.0).await.into_lua_err()
+                homie.dm.set_command(&prop.0, &value.0).await.into_lua_err()?;
+                tracing::info!(
+                    rule = %homie.rule,
+                    device = %prop.0.device_id(),
+                    node = %prop.0.node_id(),
+                    property = %prop.0.prop_id(),
+                    value = truncate(&value.0.to_string(), PAYLOAD_MAX),
+                    source = "lua",
+                    "command sent"
+                );
+                Ok(())
             },
         );
         methods.add_async_method("get_value", |_, homie, subject: mlua::Value| async move {

@@ -30,7 +30,6 @@ impl HomieDevice for VirtualDeviceRoot {
     type ResultError = eyre::Error;
 
     async fn publish_property_values(&mut self) -> Result<(), Self::ResultError> {
-        log::debug!("This is the overritten implementation");
         Ok(())
     }
 

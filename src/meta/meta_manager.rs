@@ -34,7 +34,7 @@ impl MetaManager {
     pub async fn handle_event(&mut self, event: ConfigItemEvent<MetaConfig>) -> Result<()> {
         match event {
             ConfigItemEvent::NewDocument(filename_hash, filename) => {
-                log::info!("Meta config file discovered: {}", filename);
+                tracing::info!(file = %filename, "meta config file added");
                 self.files.add_file(filename_hash, filename).await;
             }
             ConfigItemEvent::RemoveDocument(filename_hash) => {
@@ -43,7 +43,7 @@ impl MetaManager {
                     .get_file_name(&filename_hash)
                     .await
                     .unwrap_or_else(|| "unknown-document".to_string());
-                log::info!("Meta config file removed: {}", filename);
+                tracing::info!(file = %filename, "meta config file removed");
                 self.files.remove_file(&filename_hash).await;
             }
             ConfigItemEvent::New(hash, cfg) => {
@@ -51,6 +51,9 @@ impl MetaManager {
             }
             ConfigItemEvent::Removed(hash) => {
                 self.remove_config(hash).await?;
+            }
+            ConfigItemEvent::Invalid { name, error, .. } => {
+                tracing::warn!(file = %name, error, "invalid config item skipped");
             }
         }
 
@@ -60,7 +63,7 @@ impl MetaManager {
     pub async fn republish_all(&self) -> Result<()> {
         let mut configs: Vec<&MetaConfig> = self.configs.values().collect();
         configs.sort_by_key(|cfg| cfg.provider.id.as_str().to_string());
-        log::info!("Republishing {} meta config item(s)", configs.len());
+        tracing::info!(count = configs.len(), "meta config items republished");
         for cfg in configs {
             self.publish_config(cfg).await?;
         }
@@ -87,11 +90,11 @@ impl MetaManager {
                     .await
                     .unwrap_or_else(|| "unknown-document".to_string());
 
-                log::error!(
-                    "Duplicate meta provider id detected [{}]. Ignoring config in [{}], provider is already defined in [{}]",
-                    cfg.provider.id,
-                    filename,
-                    existing_filename,
+                tracing::warn!(
+                    provider = %cfg.provider.id,
+                    file = %filename,
+                    defined_in = %existing_filename,
+                    "duplicate meta provider id; config item skipped"
                 );
                 return Ok(());
             }
@@ -99,11 +102,11 @@ impl MetaManager {
 
         self.publish_config(&cfg).await?;
 
-        log::info!(
-            "Meta config item loaded: provider [{}], devices [{}], file [{}]",
-            cfg.provider.id,
-            cfg.devices.len(),
-            filename,
+        tracing::info!(
+            provider = %cfg.provider.id,
+            devices = cfg.devices.len(),
+            file = %filename,
+            "meta config item loaded"
         );
 
         self.provider_to_hash.insert(cfg.provider.id.clone(), hash);
@@ -120,18 +123,18 @@ impl MetaManager {
             .unwrap_or_else(|| "unknown-document".to_string());
 
         let Some(cfg) = self.configs.remove(&hash) else {
-            log::debug!("Meta config item remove event ignored (not active): hash [{:?}], file [{}]", hash, filename,);
+            tracing::debug!(file = %filename, "meta config item was not active; removal ignored");
             return Ok(());
         };
 
         self.provider_to_hash.remove(&cfg.provider.id);
         self.unpublish_config(&cfg).await?;
 
-        log::info!(
-            "Meta config item removed: provider [{}], devices [{}], file [{}]",
-            cfg.provider.id,
-            cfg.devices.len(),
-            filename,
+        tracing::info!(
+            provider = %cfg.provider.id,
+            devices = cfg.devices.len(),
+            file = %filename,
+            "meta config item removed"
         );
 
         Ok(())

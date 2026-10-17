@@ -20,7 +20,11 @@ use crate::{
     mqtt_client::ManagedMqttClient,
 };
 
-use super::{group_materializer::materialize, property_indexer::PropertyIndexer, VirtualDevice, VirtualDeviceSpec};
+use super::{
+    group_materializer::{materialize, rematerialize},
+    property_indexer::PropertyIndexer,
+    VirtualDevice, VirtualDeviceSpec,
+};
 
 /// Default debounce for structure rebuilds of a group device when the spec
 /// does not set `group.rebuild_debounce`.
@@ -96,8 +100,6 @@ impl VirtualDeviceManager {
         app_event_sender: mpsc::Sender<AppEvent>,
         config: VirtualDeviceManagerConfig,
     ) -> Result<(Self, HomieClientHandle, mpsc::Receiver<HomieClientEvent>)> {
-        log::debug!("HomieDomain: {:?}", config.homie_domain);
-
         let index = Arc::new(RwLock::new(PropertyIndexer::new()));
 
         let (homie_proto, last_will) =
@@ -169,7 +171,7 @@ impl VirtualDeviceManager {
             spec
         };
 
-        log::debug!("Adding virtual device: {} -- root state: {}", spec.id, self.status);
+        tracing::debug!(vdevice = %spec.id, controller_state = %self.status, "adding virtual device");
         let vdevices = self.devices.read().await;
         let device_ref = DeviceRef::new(self.homie_domain().clone(), spec.id.clone());
         if vdevices.contains_key(&device_ref) {
@@ -238,7 +240,7 @@ impl VirtualDeviceManager {
         };
 
         if let Some(mut dev) = vdevices.remove(&id) {
-            log::debug!("Removed vdevice, cancel all read tasks: {}", dev.homie_id(),);
+            tracing::debug!(vdevice = %dev.homie_id(), "removing virtual device");
             dev.cancel_all_mqtt_reads().await?;
             dev.disconnect_device().await?;
             {
@@ -250,7 +252,7 @@ impl VirtualDeviceManager {
             return Ok(Some(dev));
         }
 
-        log::debug!("VDevice removed:{}", hash);
+        tracing::debug!(config_item = %hash, "virtual device to remove not found");
         Ok(None)
     }
 
@@ -318,10 +320,10 @@ impl VirtualDeviceManager {
         let groups = self.groups.read().await;
         for hash in hashes {
             if let Some(runtime) = groups.get(&hash) {
-                log::debug!(
-                    "[group:{}] member '{}' changed -- scheduling debounced rebuild",
-                    runtime.original_spec.id,
-                    device_ref.device_id()
+                tracing::debug!(
+                    vdevice = %runtime.original_spec.id,
+                    device = %device_ref.device_id(),
+                    "group member changed; rebuild scheduled"
                 );
                 runtime.rebuild_flush.send(AppEvent::RebuildGroupDevice(hash)).await;
             }
@@ -353,15 +355,12 @@ impl VirtualDeviceManager {
         };
 
         let devices = self.dm.read().await;
-        let materialized = materialize(&original_spec, &devices, self.homie_domain());
+        let materialized = rematerialize(&original_spec, &devices, self.homie_domain());
         let device_ref = DeviceRef::new(self.homie_domain().clone(), materialized.spec.id.clone());
 
         let exists = self.devices.read().await.contains_key(&device_ref);
         if materialized.structure_hash == old_hash && exists {
-            log::debug!(
-                "[group:{}] discovery change did not alter the materialized structure -- skipping rebuild",
-                original_spec.id
-            );
+            tracing::debug!(vdevice = %original_spec.id, "group structure unchanged; rebuild skipped");
             return Ok(None);
         }
 
@@ -370,7 +369,7 @@ impl VirtualDeviceManager {
         {
             let mut vdevices = self.devices.write().await;
             if let Some(mut dev) = vdevices.remove(&device_ref) {
-                log::debug!("[group:{}] tearing down for rebuild", original_spec.id);
+                tracing::debug!(vdevice = %original_spec.id, "group device torn down for rebuild");
                 dev.cancel_all_mqtt_reads().await?;
                 dev.disconnect_device().await?;
                 let mut index = self.index.write().await;
@@ -406,7 +405,7 @@ impl VirtualDeviceManager {
         if let Some(runtime) = self.groups.write().await.get_mut(&hash) {
             runtime.structure_hash = materialized.structure_hash;
         }
-        log::info!("[group:{}] rebuilt and republished after member discovery change", original_spec.id);
+        tracing::info!(vdevice = %original_spec.id, "group device rebuilt");
         Ok(Some(device_ref))
     }
 

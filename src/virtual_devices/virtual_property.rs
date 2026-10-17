@@ -8,6 +8,7 @@ use crate::{
 };
 use color_eyre::eyre::{self, Result};
 use hc_homie5::client::HomieMQTTClient;
+use hc_homie5::logging::{truncate, PAYLOAD_MAX};
 use hc_homie5::store::DeviceStore;
 use hc_homie5::util::{DebouncedSender, DelayedSender, UniqueByExt};
 use hc_homie5::value::MappingResult;
@@ -119,9 +120,13 @@ impl VirtualProperty {
                 devices,
                 compound_spec.aggregate_function.unwrap_or_default(),
             );
-            log::debug!("{} -- Property value: {:?}", prop_ref.to_topic().build(), value);
-
-            //log::debug!("Prop: {:#?}", prop_compound_members);
+            tracing::trace!(
+                vdevice = %prop_ref.device_id(),
+                node = %prop_ref.node_id(),
+                property = %prop_ref.prop_id(),
+                value = ?value,
+                "compound value calculated"
+            );
         }
 
         // check if we have pass_through defined, otherwise take it from the node or if this also
@@ -328,7 +333,13 @@ impl VirtualProperty {
             );
             if value != self.value {
                 self.value = value;
-                log::debug!("{} -- Property value: {:?}", self.prop_ref.to_topic().build(), self.value);
+                tracing::trace!(
+                    vdevice = %self.prop_ref.device_id(),
+                    node = %self.prop_ref.node_id(),
+                    property = %self.prop_ref.prop_id(),
+                    value = ?self.value,
+                    "compound value changed"
+                );
                 self.publish_value(homie_client, homie_proto).await?;
             }
         } else {
@@ -345,7 +356,13 @@ impl VirtualProperty {
     ) -> Result<(), eyre::Error> {
         if Some(&value) != self.value.as_ref() {
             self.value = Some(value);
-            log::debug!("{} -- Property value: {:?}", self.prop_ref.to_topic().build(), self.value);
+            tracing::trace!(
+                vdevice = %self.prop_ref.device_id(),
+                node = %self.prop_ref.node_id(),
+                property = %self.prop_ref.prop_id(),
+                value = ?self.value,
+                "virtual property value set"
+            );
             self.publish_value(homie_client, homie_proto).await?;
         }
         Ok(())
@@ -388,9 +405,15 @@ impl VirtualProperty {
     ) -> Result<()> {
         let ctrl_proto = Homie5ControllerProtocol::new();
         if self.pass_through && self.value.as_ref() != Some(&value) {
-            log::debug!("pass_through value: {}", value);
             self.value = Some(value.clone());
             self.publish_value(homie_client, homie_proto).await?;
+            tracing::info!(
+                vdevice = %self.prop_ref.device_id(),
+                node = %self.prop_ref.node_id(),
+                property = %self.prop_ref.prop_id(),
+                value = truncate(&value.to_string(), PAYLOAD_MAX),
+                "set value passed through"
+            );
         }
         for (prop_ref, member) in self.prop_compound_members.iter().filter(|(_, pcm)| pcm.settable) {
             let mut p = if let Some(mapping) = &member.mapping {
@@ -402,29 +425,37 @@ impl VirtualProperty {
             if !member.retained {
                 p.qos = QoS::AtMostOnce;
             }
+            let sent_value = truncate(&String::from_utf8_lossy(&p.payload), PAYLOAD_MAX);
             homie_client.homie_publish(p).await?;
+            tracing::info!(
+                vdevice = %self.prop_ref.device_id(),
+                device = %prop_ref.device_id(),
+                node = %prop_ref.node_id(),
+                property = %prop_ref.prop_id(),
+                value = sent_value,
+                source = "vdevice",
+                "command sent"
+            );
         }
         for (_, member) in self.mqtt_compound_members.iter() {
             let Some(output) = member.output.as_ref() else {
                 continue;
             };
-            match output.mapping.map_to(&value) {
-                MappingResult::Mapped(v) => {
-                    mqtt_client
-                        .publish(&output.topic, HomieMQTTClient::map_qos(&output.qos), output.retained, v.as_str())
-                        .await?;
-                }
-                MappingResult::Unmapped(v) => {
-                    mqtt_client
-                        .publish(
-                            &output.topic,
-                            HomieMQTTClient::map_qos(&output.qos),
-                            output.retained,
-                            v.to_string().as_str(),
-                        )
-                        .await?;
-                }
-            }
+            let payload = match output.mapping.map_to(&value) {
+                MappingResult::Mapped(v) => v.to_owned(),
+                MappingResult::Unmapped(v) => v.to_string(),
+            };
+            mqtt_client
+                .publish(&output.topic, HomieMQTTClient::map_qos(&output.qos), output.retained, payload.as_str())
+                .await?;
+            tracing::info!(
+                vdevice = %self.prop_ref.device_id(),
+                topic = %output.topic,
+                payload = truncate(&payload, PAYLOAD_MAX),
+                retain = output.retained,
+                source = "vdevice",
+                "message published"
+            );
         }
         Ok(())
     }
@@ -463,7 +494,13 @@ impl VirtualProperty {
                     topic: self.prop_ref.to_topic().build(),
                 }))
                 .await?;
-            log::debug!("{} - Value read from mqtt: {}", self.prop_ref.to_topic().build(), value);
+            tracing::debug!(
+                vdevice = %self.prop_ref.device_id(),
+                node = %self.prop_ref.node_id(),
+                property = %self.prop_ref.prop_id(),
+                value = truncate(&value.to_string(), PAYLOAD_MAX),
+                "retained value restored from MQTT"
+            );
             self.set_value(value, homie_client, homie_proto).await?;
         }
 
@@ -472,10 +509,12 @@ impl VirtualProperty {
 
     pub async fn cancel_read_value_from_mqtt(&mut self, homie_client: &HomieMQTTClient) -> Result<()> {
         if self.read_handle.abort() {
-            log::debug!(
-                "{} - Cancel reading from mqtt, timeout: {:?}",
-                self.prop_ref.to_topic().build(),
-                self.options.read_timeout
+            tracing::debug!(
+                vdevice = %self.prop_ref.device_id(),
+                node = %self.prop_ref.node_id(),
+                property = %self.prop_ref.prop_id(),
+                read_timeout_ms = self.options.read_timeout.map(|t| t.as_millis() as u64),
+                "no retained value in MQTT before the read timeout"
             );
             // unsubscribe from property topic
             homie_client

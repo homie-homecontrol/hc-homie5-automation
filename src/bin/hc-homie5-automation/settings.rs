@@ -2,7 +2,7 @@ use color_eyre::eyre::{self, eyre};
 use homie5::{HomieDomain, HomieID};
 use once_cell::sync::Lazy;
 use simple_kv_store::KubernetesResource;
-use std::{path::PathBuf, str::FromStr, time::Duration};
+use std::{fmt, path::PathBuf, str::FromStr, time::Duration};
 
 use hc_homie5::settings::{self, HomieSettings};
 use hc_homie5_automation::lua_runtime::DEFAULT_LUA_MEMORY_LIMIT;
@@ -117,8 +117,10 @@ impl FromStr for ConfigBackend {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.splitn(2, ':').collect();
         if parts.len() != 2 {
-            println!("Error parsing config backend: {}", s);
-            return Err(eyre!("Invalid format. Use 'file:/path', 'mqtt:topic' or 'kubernetes:name[,namespace]'"));
+            return Err(eyre!(
+                "invalid config backend [{}]: use 'file:/path', 'mqtt:topic' or 'kubernetes:name[,namespace]'",
+                s
+            ));
         }
 
         match parts[0].to_lowercase().as_str() {
@@ -138,10 +140,17 @@ impl FromStr for ConfigBackend {
                 };
                 Ok(ConfigBackend::Kubernetes { name, namespace })
             }
-            _ => {
-                println!("Error parsing config backend: {}", s);
-                Err(eyre!("Unknown backend type. Use 'file' or 'kubernetes'"))
-            }
+            _ => Err(eyre!("unknown config backend type [{}]: use 'file', 'mqtt' or 'kubernetes'", s)),
+        }
+    }
+}
+
+impl fmt::Display for ConfigBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigBackend::File { path } => write!(f, "file:{}", path.display()),
+            ConfigBackend::Kubernetes { name, namespace } => write!(f, "kubernetes:{},{}", name, namespace),
+            ConfigBackend::Mqtt { topic } => write!(f, "mqtt:{}", topic),
         }
     }
 }
@@ -190,10 +199,30 @@ impl TryFrom<String> for ValueStoreConfig {
                     resource_type,
                 })
             }
-            _ => {
-                println!("Error parsing value store config: {}", s);
-                Err(eyre!("Invalid format. Use 'inmemory', 'sqlite:/path/to/filename.db' or 'kubernetes:secret|configmap,name[,namespace]'"))
+            _ => Err(eyre!(
+                "invalid value store config [{}]: use 'inmemory', 'sqlite:/path/to/filename.db' or 'kubernetes:secret|configmap,name[,namespace]'",
+                s
+            )),
+        }
+    }
+}
+
+impl fmt::Display for ValueStoreConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ValueStoreConfig::InMemory => f.write_str("inmemory"),
+            ValueStoreConfig::Kubernetes {
+                name,
+                namespace,
+                resource_type,
+            } => {
+                let resource_type = match resource_type {
+                    KubernetesResource::Secret => "secret",
+                    KubernetesResource::ConfigMap => "configmap",
+                };
+                write!(f, "kubernetes:{},{},{}", resource_type, name, namespace)
             }
+            ValueStoreConfig::Sqlite { path } => write!(f, "sqlite:{}", path),
         }
     }
 }
@@ -211,8 +240,7 @@ impl TryFrom<String> for LocationConfig {
     fn try_from(s: String) -> Result<Self, Self::Error> {
         let parts: Vec<&str> = s.splitn(3, ',').collect();
         if parts.len() != 3 {
-            println!("Error parsing value store config: {}", s);
-            return Err(eyre!("Invalid format. Use '<latitude>,<longitude>,<elevation>'"));
+            return Err(eyre!("invalid location [{}]: use '<latitude>,<longitude>,<elevation>'", s));
         }
         let latitude: f64 = parts[0].parse()?;
         let longitude: f64 = parts[1].parse()?;

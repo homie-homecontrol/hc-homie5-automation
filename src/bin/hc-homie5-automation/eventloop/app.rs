@@ -3,6 +3,7 @@ use std::time::Duration;
 use color_eyre::eyre::Result;
 
 use hc_homie5::device::{HomieDevice, HomieDeviceCore};
+use hc_homie5::logging::chain;
 use hc_homie5_automation::app_state::{AppEvent, AppState};
 
 pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<bool> {
@@ -23,7 +24,7 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
         }
         AppEvent::FlushControllerChildren => {
             if state.vdm.flush_children().await? {
-                log::debug!("Published debounced children update for controller device");
+                tracing::debug!("controller device children republished");
             }
         }
         AppEvent::RebuildGroupDevice(hash) => {
@@ -42,6 +43,7 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
             }
         }
         AppEvent::Exit => {
+            tracing::info!("stopping");
             // Stop configuration watchers
             state.rule_watcher_handle.stop().await?;
             state.virtual_devices_watcher_handle.stop().await?;
@@ -66,13 +68,21 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
             // that case we log and proceed so shutdown can never hang.
             const FLUSH_MAX_WAIT: Duration = Duration::from_secs(5);
             if let Err(err) = state.vdm.flush(FLUSH_MAX_WAIT).await {
-                log::warn!("Shutdown: flushing virtual device connection failed: {err}");
+                tracing::warn!(
+                    connection = "virtual-devices",
+                    error = chain(&err),
+                    "cannot flush MQTT publishes on shutdown"
+                );
             }
             if let Err(err) = state.dm.flush(FLUSH_MAX_WAIT).await {
-                log::warn!("Shutdown: flushing discovery/controller connection failed: {err}");
+                tracing::warn!(
+                    connection = "discovery",
+                    error = chain(&err),
+                    "cannot flush MQTT publishes on shutdown"
+                );
             }
             if let Err(err) = state.mqtt_client.flush(FLUSH_MAX_WAIT).await {
-                log::warn!("Shutdown: flushing mqtt client connection failed: {err}");
+                tracing::warn!(connection = "mqtt", error = chain(&err), "cannot flush MQTT publishes on shutdown");
             }
 
             // disconnect all the clients

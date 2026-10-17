@@ -29,7 +29,7 @@ impl LuaModuleManager {
 
             ConfigItemEvent::New(item_hash, content) => {
                 if let Some(cleaned_name) = self.file_names.read().await.get(&item_hash.filename_hash()).cloned() {
-                    log::debug!("Adding lua file: {}: \n{}", cleaned_name, content);
+                    tracing::info!(module = %cleaned_name, size_bytes = content.len(), "Lua module loaded");
                     self.file_contents.write().await.insert(cleaned_name, content);
                 }
             }
@@ -37,6 +37,7 @@ impl LuaModuleManager {
             ConfigItemEvent::RemoveDocument(filename_hash) => {
                 if let Some(cleaned_name) = self.file_names.write().await.remove(&filename_hash) {
                     self.file_contents.write().await.remove(&cleaned_name);
+                    tracing::info!(module = %cleaned_name, "Lua module removed");
                 }
             }
 
