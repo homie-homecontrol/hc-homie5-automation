@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{self};
 
 use crate::eventloop::EventMultiPlexer;
 
-use crate::settings::{ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
+use crate::settings::{mqtt_client_config, ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::client::HomieClientHandle;
 use hc_homie5::logging::{truncate, Outage, PAYLOAD_MAX};
@@ -107,7 +107,7 @@ pub async fn initialize_app(
 
     let (app_event_sender, app_event_receiver) = mpsc::channel::<AppEvent>(CHANNEL_CAPACITY);
 
-    let homie_client_options = settings.homie.to_mqtt_client_config();
+    let homie_client_options = mqtt_client_config(&settings.homie);
 
     // Setup device discovery
     // =====================================================
@@ -117,10 +117,8 @@ pub async fn initialize_app(
     // Setup MQTT Client
     // ===============================================
 
-    let mqtt_client_options = settings
-        .homie
-        .to_mqtt_client_config()
-        .client_id(format!("{}-mqtt", &settings.homie.client_id));
+    let mqtt_client_options =
+        mqtt_client_config(&settings.homie).client_id(format!("{}-mqtt", &settings.homie.client_id));
 
     let (mqtt_client_handle, mqtt_client, mqtt_event_receiver) =
         run_mqtt_client(mqtt_client_options.to_mqtt_options()?, CHANNEL_CAPACITY)?;

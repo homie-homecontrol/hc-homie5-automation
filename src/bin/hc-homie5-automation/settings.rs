@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use simple_kv_store::KubernetesResource;
 use std::{fmt, path::PathBuf, str::FromStr, time::Duration};
 
+use hc_homie5::client::MqttClientConfig;
 use hc_homie5::settings::{self, HomieSettings};
 use hc_homie5_automation::lua_runtime::DEFAULT_LUA_MEMORY_LIMIT;
 use hc_homie5_automation::rules::parse_duration;
@@ -16,9 +17,10 @@ pub static SETTINGS: Lazy<Settings> = Lazy::new(Settings::default);
 
 // Large enough for normal bursts, small enough to expose backpressure instead of hiding stalls.
 pub const CHANNEL_CAPACITY: usize = 1024;
-/// Keepalive for the virtual-device Homie MQTT client. A longer interval gives
-/// large QoS>0 publish bursts more time to drain before rumqttc's collision
-/// watchdog trips.
+/// Keepalive for the discovery, generic and virtual-device MQTT clients. A
+/// longer interval gives large QoS>0 publish bursts more time to drain before
+/// rumqttc's collision watchdog trips, and tolerates Lua scripts that block the
+/// current-thread runtime up to their budget.
 pub const KEEP_ALIVE_SECS: u64 = 30;
 /// Raised inflight window for the virtual-device Homie MQTT client. This
 /// matches the bridge crates and avoids rumqttc packet-id collisions during
@@ -324,6 +326,13 @@ impl Default for AppSettings {
     }
 }
 
+/// MQTT client config for the discovery and generic MQTT clients. They share the virtual-device
+/// client's [`KEEP_ALIVE_SECS`] so a CPU-bound Lua script blocking the current-thread runtime for
+/// its budget does not drop the connections.
+pub fn mqtt_client_config(settings: &HomieSettings) -> MqttClientConfig {
+    settings.to_mqtt_client_config().keep_alive(KEEP_ALIVE_SECS)
+}
+
 pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> VirtualDeviceManagerConfig {
     VirtualDeviceManagerConfig {
         hostname: settings.hostname.clone(),
@@ -353,6 +362,14 @@ mod tests {
 
     fn value_store(s: &str) -> Result<ValueStoreConfig, eyre::Report> {
         ValueStoreConfig::try_from(s.to_string())
+    }
+
+    #[test]
+    fn mqtt_client_config_uses_long_keep_alive() {
+        let homie = HomieSettings::from_env("HCACTL_TEST_UNSET", "hcactl-", HomieDomain::Default);
+        let config = mqtt_client_config(&homie);
+        assert_eq!(config.keep_alive, KEEP_ALIVE_SECS);
+        assert_eq!(config.to_mqtt_options().unwrap().keep_alive(), Duration::from_secs(KEEP_ALIVE_SECS));
     }
 
     #[test]
