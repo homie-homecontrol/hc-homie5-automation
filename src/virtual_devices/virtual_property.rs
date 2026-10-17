@@ -477,7 +477,7 @@ impl VirtualProperty {
         homie_proto: &Homie5DeviceProtocol,
     ) -> Result<()> {
         let ctrl_proto = Homie5ControllerProtocol::new();
-        if self.pass_through && self.value.as_ref() != Some(&value) {
+        if self.pass_through && (!self.retained || self.value.as_ref() != Some(&value)) {
             self.value = Some(value.clone());
             self.publish_value(homie_client, homie_proto).await?;
             tracing::info!(
@@ -869,5 +869,44 @@ mod tests {
         prop.set_value(value, &client.client, &proto()).await.unwrap();
 
         assert_eq!(client.published(), 1);
+    }
+
+    fn pass_through_vprop(retained: bool) -> VirtualProperty {
+        VirtualProperty {
+            pass_through: true,
+            ..vprop(retained)
+        }
+    }
+
+    #[tokio::test]
+    async fn identical_pass_through_sets_on_non_retained_property_publish_each_time() {
+        let (mqtt_client, _eventloop) = ManagedMqttClient::offline();
+        let client = TestClient::new();
+        let mut prop = pass_through_vprop(false);
+        let value = HomieValue::Enum("press".to_string());
+
+        prop.handle_set_command(value.clone(), &client.client, &mqtt_client, &proto())
+            .await
+            .unwrap();
+        prop.handle_set_command(value, &client.client, &mqtt_client, &proto())
+            .await
+            .unwrap();
+
+        assert_eq!(client.published(), 2);
+    }
+
+    #[tokio::test]
+    async fn pass_through_set_to_current_value_on_retained_property_does_not_publish() {
+        let (mqtt_client, _eventloop) = ManagedMqttClient::offline();
+        let client = TestClient::new();
+        let mut prop = pass_through_vprop(true);
+        let value = HomieValue::Enum("press".to_string());
+        prop.value = Some(value.clone());
+
+        prop.handle_set_command(value, &client.client, &mqtt_client, &proto())
+            .await
+            .unwrap();
+
+        assert_eq!(client.published(), 0);
     }
 }
