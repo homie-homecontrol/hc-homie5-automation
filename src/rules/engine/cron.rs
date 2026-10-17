@@ -18,8 +18,8 @@ pub async fn run_cron_rules(event: &CronEvent, ctx: &RuleContext<'_>) {
     };
 
     if let RuleTrigger::CronTrigger { schedule: _, r#while } = trigger {
-        let devices = ctx.dm.read().await;
-        if match_whilecondition_set(r#while.as_ref(), &devices) {
+        let while_matches = match_whilecondition_set(r#while.as_ref(), &*ctx.dm.read().await);
+        if while_matches {
             run_rule_actions(event.rule_hash, rule, event.into(), ctx).await;
         } else {
             tracing::debug!(rule = %rule.name, trigger = "cron", "trigger matched, while condition false");

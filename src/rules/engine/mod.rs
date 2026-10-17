@@ -20,10 +20,34 @@ pub use solar::*;
 pub use timer::*;
 pub use virtual_devices::*;
 
+use config_watcher::ConfigItemHash;
+use hc_homie5::store::DeviceStore;
+
 use crate::{
-    device_manager::DeviceManager, lua_runtime::LuaModuleManager, mqtt_client::ManagedMqttClient,
-    rule_manager::RuleManager, timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
+    device_manager::DeviceManager,
+    lua_runtime::LuaModuleManager,
+    mqtt_client::ManagedMqttClient,
+    rule_manager::RuleManager,
+    rules::{Rule, RuleTrigger},
+    timer_manager::TimerManager,
+    virtual_devices::VirtualDeviceManager,
 };
+
+/// Rules with at least one trigger for which `matches` holds against `devices`.
+///
+/// All triggers and while-conditions are evaluated before this returns, so callers drop the
+/// device-store guard before running actions while every rule still sees the same snapshot.
+fn matching_rules<'r>(
+    rules: &'r RuleManager,
+    devices: &DeviceStore,
+    matches: impl Fn(&RuleTrigger, &DeviceStore) -> bool,
+) -> Vec<(ConfigItemHash, &'r Rule)> {
+    rules
+        .iter()
+        .filter(|(_, rule)| rule.triggers.iter().any(|trigger| matches(trigger, devices)))
+        .map(|(hash, rule)| (*hash, rule))
+        .collect()
+}
 
 pub struct RuleContext<'a> {
     pub rules: &'a RuleManager,
