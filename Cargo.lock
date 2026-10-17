@@ -313,9 +313,9 @@ dependencies = [
 
 [[package]]
 name = "config_watcher"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0bdf3c185e7fa9aabcbe50cb44b65881f63f3df7ed39393eb77bd2225dd25a4"
+checksum = "60096be69a85840b4d3b87d8e117f7c20f8aa7b416b076d5686f730a830d83a2"
 dependencies = [
  "futures",
  "futures-stream-ext",
@@ -948,9 +948,9 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c36aeba289a33e01db827c97f3bd542ea0c46b0437f5007585e786b83c2b5187"
+checksum = "d2a05adf2fd8706343b827fa93a5381d46287b5dfa30c2308b3805ffee526352"
 dependencies = [
  "chrono",
  "hc-homie5-macros",
@@ -2955,6 +2955,8 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 [[package]]
 name = "simple_kv_store"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0760e0814e6dc407eb3d70603cba354b770efc46f9cd704eb9c6fe57e3ec212d"
 dependencies = [
  "base64",
  "k8s-openapi 0.26.1",
