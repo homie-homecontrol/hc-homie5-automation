@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use hc_homie5::client::{FlushTimeout, PendingPublishObserver, PendingPublishTracker, QueuedPublishCounter};
+use hc_homie5::logging::chain;
 use rumqttc::{AsyncClient, ClientError, ConnectionError, MqttOptions, QoS, SubscribeFilter};
 use thiserror::Error;
 use tokio::{
@@ -15,9 +16,9 @@ use tokio::{
 pub enum MqttClientError {
     #[error("Mqtt Client error: {0}")]
     MqttClient(#[from] ClientError),
-    #[error("Error waiting for homie client task to complete: {0} -- {0:#?}")]
+    #[error("Error waiting for homie client task to complete: {0}")]
     JoinError(#[from] JoinError),
-    #[error("Error sending event to mpsc channel: {0} -- {0:#?}")]
+    #[error("Error sending event to mpsc channel: {0}")]
     ChannelSendError(#[from] SendError<MqttClientEvent>),
 }
 
@@ -79,7 +80,7 @@ pub fn run_mqtt_client(
     mqttoptions: MqttOptions,
     channel_size: usize,
 ) -> Result<(MqttClientHandle, ManagedMqttClient, Receiver<MqttClientEvent>), Box<MqttClientError>> {
-    log::trace!("Connecting to MQTT: {}", mqttoptions.client_id());
+    tracing::debug!(client_id = %mqttoptions.client_id(), "MQTT client starting");
     let (sender, receiver) = mpsc::channel(channel_size);
 
     let (mqtt_client, mut eventloop) = AsyncClient::new(mqttoptions, channel_size);
@@ -94,7 +95,7 @@ pub fn run_mqtt_client(
                 poll_res = eventloop.poll() => poll_res,
                 _exit = stop_receiver.changed() => {
                     if *stop_receiver.borrow() {
-                        log::trace!("Received stop signal. Exiting...");
+                        tracing::trace!("MQTT client stop requested");
                         break;
                     }
                     continue;
@@ -107,10 +108,10 @@ pub fn run_mqtt_client(
                         let payload = match String::from_utf8(p.payload.to_vec()) {
                             Ok(payload) => payload,
                             Err(err) => {
-                                log::warn!(
-                                    "Cannot parse mqtt payload for topic [{}] to string. Error: {}",
-                                    p.topic,
-                                    err
+                                tracing::debug!(
+                                    topic = %p.topic,
+                                    error = chain(&err),
+                                    "MQTT payload is not UTF-8; message skipped"
                                 );
                                 continue;
                             }
@@ -125,7 +126,7 @@ pub fn run_mqtt_client(
                         sender.send(MqttClientEvent::PublishMessage(pe)).await?;
                     }
                     rumqttc::Event::Incoming(rumqttc::Incoming::ConnAck(_)) => {
-                        log::trace!("MQTT: Connected");
+                        tracing::trace!("MQTT connection acknowledged");
                         connected = true;
                         sender.send(MqttClientEvent::Connect).await?;
                     }
@@ -142,7 +143,7 @@ pub fn run_mqtt_client(
                         pending_publishes.record_ack(comp.pkid);
                     }
                     rumqttc::Event::Outgoing(rumqttc::Outgoing::Disconnect) => {
-                        log::trace!("MQTT: Connection closed from our side.",);
+                        tracing::trace!("MQTT connection closed by client");
                         // Nothing can be acknowledged after the disconnect —
                         // release any flush waiters instead of letting them
                         // run into their max_wait.
@@ -165,14 +166,14 @@ pub fn run_mqtt_client(
                     // not wedge flush(). Queued requests survive in rumqttc's
                     // request channel and are kept.
                     pending_publishes.clear_in_flight();
-                    log::error!("MQTTClient: Error connecting mqtt. {:#?}", err);
+                    // Reported to the app as an event, which logs the outage.
                     sender.send(MqttClientEvent::Error(err)).await?;
                     tokio::time::sleep(Duration::from_secs(5)).await;
                 }
             };
         }
         sender.send(MqttClientEvent::Stop).await?;
-        log::trace!("Exiting mqtt client eventloop...");
+        tracing::trace!("MQTT client stopped");
         Ok(())
     });
     Ok((

@@ -42,9 +42,10 @@ pub fn log_homie_message(msg: &Homie5Message) -> String {
             device, description, ..
         } => {
             format!(
-                "[DeviceDescription]: Device: [{}], Description: \n{}",
+                "[DeviceDescription]: Device: [{}], version: [{}], nodes: [{}]",
                 device.to_topic().build(),
-                serde_yaml_ng::to_string(description).unwrap_or_default()
+                description.version,
+                description.nodes.len()
             )
         }
 

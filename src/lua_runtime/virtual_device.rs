@@ -1,11 +1,14 @@
 use super::{LuaDeviceRef, LuaHomieValue, LuaPropertyRef};
 use crate::virtual_devices::VirtualDeviceManagerProxy;
 use hc_homie5::device::HomieDeviceCore;
+use hc_homie5::logging::{truncate, PAYLOAD_MAX};
 use homie5::HomieID;
 use mlua::{ExternalResult, LuaSerdeExt, UserData};
 
 pub struct LuaVirtualDevice {
     pub vdm: VirtualDeviceManagerProxy,
+    /// Name of the rule running the script, for logs.
+    pub rule: String,
 }
 
 impl UserData for LuaVirtualDevice {
@@ -15,25 +18,54 @@ impl UserData for LuaVirtualDevice {
             |_, homie, (subject, value): (mlua::Value, mlua::String)| async move {
                 // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
                 let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
+                let value = value.to_string_lossy();
 
-                homie
-                    .vdm
-                    .set_str_value(&prop.0, value.to_string_lossy().as_str())
-                    .await
-                    .into_lua_err()
+                homie.vdm.set_str_value(&prop.0, value.as_str()).await.into_lua_err()?;
+                tracing::debug!(
+                    rule = %homie.rule,
+                    vdevice = %prop.0.device_id(),
+                    node = %prop.0.node_id(),
+                    property = %prop.0.prop_id(),
+                    value = truncate(&value, PAYLOAD_MAX),
+                    source = "lua",
+                    "virtual device value set"
+                );
+                Ok(())
             },
         );
         methods.add_async_method("set_value", |_, homie, (subject, value): (mlua::Value, LuaHomieValue)| async move {
             // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
             let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
-            homie.vdm.set_value(&prop.0, value.0).await.into_lua_err()
+            let logged_value = truncate(&value.0.to_string(), PAYLOAD_MAX);
+            homie.vdm.set_value(&prop.0, value.0).await.into_lua_err()?;
+            tracing::debug!(
+                rule = %homie.rule,
+                vdevice = %prop.0.device_id(),
+                node = %prop.0.node_id(),
+                property = %prop.0.prop_id(),
+                value = logged_value,
+                source = "lua",
+                "virtual device value set"
+            );
+            Ok(())
         });
         methods.add_async_method(
             "set_command",
             |_, homie, (subject, value): (mlua::Value, LuaHomieValue)| async move {
                 // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
                 let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
-                homie.vdm.set_command(&prop.0, value.0).await.into_lua_err()
+                let logged_value = truncate(&value.0.to_string(), PAYLOAD_MAX);
+                homie.vdm.set_command(&prop.0, value.0).await.into_lua_err()?;
+                tracing::info!(
+                    rule = %homie.rule,
+                    device = %prop.0.device_id(),
+                    node = %prop.0.node_id(),
+                    property = %prop.0.prop_id(),
+                    value = logged_value,
+                    source = "lua",
+                    "command sent"
+                );
+                Ok(())
             },
         );
         methods.add_async_method("get_value", |_, homie, subject: mlua::Value| async move {
@@ -101,13 +133,20 @@ impl UserData for LuaVirtualDevice {
                 };
                 let mut devices = homie.vdm.write().await;
                 if let Some(device) = devices.get_mut(&dref) {
-                    device
-                        .set_alert(
-                            HomieID::try_from(alert_id.to_string_lossy()).into_lua_err()?,
-                            alert.to_string_lossy(),
-                        )
-                        .await
-                        .into_lua_err()?;
+                    let alert_id = HomieID::try_from(alert_id.to_string_lossy()).into_lua_err()?;
+                    let alert = alert.to_string_lossy();
+                    let changed = device.alerts.get(&alert_id) != Some(&alert);
+                    device.set_alert(alert_id.clone(), alert.clone()).await.into_lua_err()?;
+                    if changed {
+                        tracing::info!(
+                            rule = %homie.rule,
+                            device = %dref.device_id(),
+                            alert = %alert_id,
+                            alert_message = alert,
+                            source = "lua",
+                            "alert raised"
+                        );
+                    }
                 }
                 Ok(true)
             },
@@ -127,10 +166,18 @@ impl UserData for LuaVirtualDevice {
                 };
                 let mut devices = homie.vdm.write().await;
                 if let Some(device) = devices.get_mut(&dref) {
-                    device
-                        .clear_alert(&HomieID::try_from(alert_id.to_string_lossy()).into_lua_err()?)
-                        .await
-                        .into_lua_err()?;
+                    let alert_id = HomieID::try_from(alert_id.to_string_lossy()).into_lua_err()?;
+                    let active = device.alerts.contains_key(&alert_id);
+                    device.clear_alert(&alert_id).await.into_lua_err()?;
+                    if active {
+                        tracing::info!(
+                            rule = %homie.rule,
+                            device = %dref.device_id(),
+                            alert = %alert_id,
+                            source = "lua",
+                            "alert cleared"
+                        );
+                    }
                 }
                 Ok(true)
             },

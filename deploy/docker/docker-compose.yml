@@ -38,7 +38,7 @@ services:
       HCACTL_RULES_CONFIG: file:./data/rules
       HCACTL_META_CONFIG: file:./data/meta
       HCACTL_VALUE_STORE_CONFIG: sqlite:./data/store/data.db
-      HCACTL_LOGLEVEL: debug,info,warn,error
+      HCACTL_LOG_LEVEL: info
       TZ: "Europe/Berlin"
     volumes:
       - ./rules:/service/data/rules

@@ -1,4 +1,5 @@
 use color_eyre::eyre::Result;
+use hc_homie5::logging::chain;
 use hc_homie5_automation::{
     app_state::AppState,
     panic_guard::contain,
@@ -7,7 +8,12 @@ use hc_homie5_automation::{
 };
 
 pub async fn handle_timer_event(event: TimerEvent, state: &mut AppState) -> Result<bool> {
-    log::debug!("Timerevent: {:?}", event);
+    tracing::debug!(
+        timer = %event.id,
+        rule = state.rules.get(&event.rule_hash).map(|r| r.name.as_str()),
+        delayed_action = event.rule_action.is_some(),
+        "timer fired"
+    );
 
     if event.rule_action.is_none() {
         run_timer_rules(&event, &state.as_rule_ctx()).await;
@@ -23,17 +29,18 @@ pub async fn handle_timer_event(event: TimerEvent, state: &mut AppState) -> Resu
         let Some(name) = state.rules.get(&event.rule_hash).map(|r| r.name.as_str()) else {
             return Ok(false);
         };
+        tracing::info!(rule = %name, timer = %event.id, "delayed rule action started");
         match contain(execute_rule_action(event.rule_hash, name, &action, &trigger_event, &state.as_rule_ctx(), true))
             .await
         {
             Ok(Ok(_)) => {
-                log::debug!("{} -- Rule completed: {}", name, name);
+                tracing::debug!(rule = %name, timer = %event.id, "delayed rule action finished");
             }
             Ok(Err(err)) => {
-                log::error!("{} -- Error executing rule: {}", name, err);
+                tracing::error!(rule = %name, timer = %event.id, error = chain(err.as_ref()), "delayed rule action failed");
             }
             Err(panic) => {
-                log::error!("{} -- Delayed rule action panicked, skipped: {}", name, panic);
+                tracing::error!(rule = %name, timer = %event.id, error = chain(&panic), "delayed rule action panicked");
             }
         }
     }

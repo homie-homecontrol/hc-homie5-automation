@@ -1,4 +1,7 @@
+use std::str::FromStr;
+
 use config_watcher::ConfigItemHash;
+use hc_homie5::logging::chain;
 
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 use crate::{
@@ -18,6 +21,8 @@ pub async fn run_cron_rules(event: &CronEvent, ctx: &RuleContext<'_>) {
         let devices = ctx.dm.read().await;
         if match_whilecondition_set(r#while.as_ref(), &devices) {
             run_rule_actions(event.rule_hash, rule, event.into(), ctx).await;
+        } else {
+            tracing::debug!(rule = %rule.name, trigger = "cron", "trigger matched, while condition false");
         }
     }
 }
@@ -25,6 +30,15 @@ pub async fn run_cron_rules(event: &CronEvent, ctx: &RuleContext<'_>) {
 pub fn schedule_cron(rule_hash: ConfigItemHash, rule: &Rule, cron_manager: &CronManager) {
     for (trigger_index, trigger) in rule.triggers.iter().enumerate() {
         if let RuleTrigger::CronTrigger { schedule, r#while: _ } = trigger {
+            if let Err(err) = ::cron::Schedule::from_str(schedule) {
+                tracing::warn!(
+                    rule = %rule.name,
+                    trigger = trigger_index,
+                    schedule = %schedule,
+                    error = chain(&err),
+                    "invalid cron schedule; trigger never fires"
+                );
+            }
             cron_manager.schedule_cron(rule_hash, trigger_index, schedule);
         }
     }

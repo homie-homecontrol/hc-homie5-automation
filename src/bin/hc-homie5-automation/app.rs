@@ -17,6 +17,7 @@ use crate::eventloop::EventMultiPlexer;
 use crate::settings::{ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::client::HomieClientHandle;
+use hc_homie5::logging::{truncate, Outage, PAYLOAD_MAX};
 use hc_homie5_automation::{
     cron_manager::CronManager,
     device_manager::DeviceManager,
@@ -47,7 +48,7 @@ impl Tokenizer for LuaFileTokenizer {
 ///
 /// * `kind` — label used in the missing-folder panic message
 ///   (`"Configured {kind} folder [..] does not exist!"`)
-/// * `log_kind` — label used in the backend-selection debug logs
+/// * `log_kind` — label used in the backend-selection debug log
 /// * `file_glob` — file pattern watched by the `File` backend (e.g. `*.yaml`)
 /// * `client_id_suffix` — appended to the MQTT client id for the `Mqtt`
 ///   backend's dedicated connection (e.g. `-cfg-r`)
@@ -59,6 +60,7 @@ fn run_config_backend(
     file_glob: &str,
     client_id_suffix: &str,
 ) -> std::result::Result<(backend::WatcherHandle, mpsc::Receiver<backend::DocumentEvent>), WatcherError> {
+    tracing::debug!(config = log_kind, backend = %backend_config, "starting config watcher backend");
     match backend_config {
         ConfigBackend::File { path } => {
             let absolute_path = fs::canonicalize(path).unwrap_or_else(|_| {
@@ -67,7 +69,6 @@ fn run_config_backend(
             backend::run_config_file_watcher(absolute_path, file_glob)
         }
         ConfigBackend::Kubernetes { name, namespace } => {
-            log::debug!("Using Kubernetes backend for {}", log_kind);
             backend::run_configmap_watcher(name.to_string(), namespace.to_string())
         }
         ConfigBackend::Mqtt { topic } => {
@@ -75,7 +76,6 @@ fn run_config_backend(
                 .homie
                 .to_mqtt_client_config()
                 .client_id(format!("{}{}", &settings.homie.client_id, client_id_suffix));
-            log::debug!("Using Mqtt backend for {}", log_kind);
             backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
         }
     }
@@ -84,6 +84,24 @@ fn run_config_backend(
 pub async fn initialize_app(
 ) -> Result<(EventMultiPlexer, HomieClientHandle, HomieClientHandle, MqttClientHandle, SolarEventHandle, AppState)> {
     let settings = &SETTINGS;
+    let vdm_config = crate::settings::vdm_config_from_homie(&settings.homie, &settings.app);
+    tracing::info!(
+        broker = %format_args!("{}:{}", settings.homie.hostname, settings.homie.port),
+        tls = settings.homie.use_tls,
+        client_id = %settings.homie.client_id,
+        homie_domain = %settings.homie.homie_domain,
+        controller = %vdm_config.controller_id,
+        rules_config = %settings.app.rules_config,
+        virtual_devices_config = %settings.app.virtual_devices_config,
+        meta_config = %settings.app.meta_config,
+        lua_module_config = %settings.app.lua_files_config,
+        value_store = %settings.app.value_store_config,
+        location_set = settings.app.location.latitude != 0.0 || settings.app.location.longitude != 0.0,
+        lua_script_timeout_ms = settings.app.lua_script_timeout.as_millis() as u64,
+        lua_memory_limit_mb = settings.app.lua_memory_limit / (1024 * 1024),
+        controller_children_debounce_ms = settings.app.controller_children_debounce.as_millis() as u64,
+        "configuration loaded"
+    );
 
     set_fallback_homie_domain(settings.homie.homie_domain.clone());
 
@@ -110,13 +128,8 @@ pub async fn initialize_app(
     // Setup homie device for controller
     // =====================================================
 
-    let (vdm, homie_ctl_device_client_handle, homie_device_event_receiver) = VirtualDeviceManager::new(
-        dm.clone(),
-        mqtt_client.clone(),
-        app_event_sender.clone(),
-        crate::settings::vdm_config_from_homie(&settings.homie, &settings.app),
-    )
-    .await?;
+    let (vdm, homie_ctl_device_client_handle, homie_device_event_receiver) =
+        VirtualDeviceManager::new(dm.clone(), mqtt_client.clone(), app_event_sender.clone(), vdm_config).await?;
 
     // Setup Timers and Cron
     // =====================================================
@@ -178,13 +191,13 @@ pub async fn initialize_app(
 
     let deserialize_meta = |doc: &str| -> std::result::Result<MetaConfig, String> {
         parse_document::<MetaConfig>(doc).map_err(|err| {
+            // The error is reported by the watcher as an invalid config item and logged there.
             let preview = doc.lines().take(3).collect::<Vec<_>>().join(" | ");
-            let msg = format!(
+            format!(
                 "Meta overlay parse error: {}. Hint: annotation values must be strings or string arrays. Document preview: {}",
-                err, preview
-            );
-            log::error!("{}", msg);
-            msg
+                err,
+                truncate(&preview, PAYLOAD_MAX)
+            )
         })
     };
 
@@ -252,6 +265,10 @@ pub async fn initialize_app(
             lua_files_watcher_handle,
             lua_script_timeout: settings.app.lua_script_timeout,
             lua_memory_limit: settings.app.lua_memory_limit,
+            discovery_outage: Outage::new(),
+            virtual_devices_outage: Outage::new(),
+            mqtt_outage: Outage::new(),
+            watchers_started: false,
         },
     ))
 }
@@ -279,7 +296,7 @@ pub async fn deinitialize_app(
     homie_discovery_client_handle.stop_graceful(STOP_GRACE).await?;
 
     homie_ctrl_device_client_handle.stop_graceful(STOP_GRACE).await?;
-    log::debug!("Deinitialized app...");
+    tracing::debug!("MQTT clients stopped");
 
     Ok(())
 }

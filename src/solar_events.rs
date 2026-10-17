@@ -4,6 +4,7 @@ use std::time::Duration;
 use chrono::{DateTime, TimeZone, Utc};
 use color_eyre::eyre::Result;
 use config_watcher::ConfigItemHash;
+use hc_homie5::logging::chain;
 use hc_homie5::value::ValueMatcher;
 use serde::{Deserialize, Serialize};
 use sun::SunPhase;
@@ -188,7 +189,7 @@ pub fn run_solar_event_task(
                     // Stop signal received
                     _ = stop_receiver.changed() => {
                         if *stop_receiver.borrow() {
-                            log::debug!("Stopping solar event task...");
+                            tracing::debug!("solar event task stopping");
                             break;
                         }
                     }
@@ -196,9 +197,9 @@ pub fn run_solar_event_task(
                     // Wait for the next event or default delay
                     _ = tokio::time::sleep(delay) => {
                             if let Some((trigger, _)) = next_event {
-                                log::debug!("Triggering event for rule: {}", trigger.rule_hash);
+                                tracing::trace!(rule_hash = %trigger.rule_hash, event = ?trigger.event, "solar event due");
                                 if let Err(err) = event_sender.send(trigger.event.clone()).await {
-                                    log::warn!("Error sending solar event trigger {:?}: {:#?}", trigger, err);
+                                    tracing::debug!(event = ?trigger.event, error = chain(&err), "cannot deliver solar event");
                                 }
                             }
                     }
@@ -206,7 +207,7 @@ pub fn run_solar_event_task(
             }
         };
         if let Err(panic) = contain(solar_task).await {
-            log::error!("Solar event task panicked; solar triggers stop until restart: {}", panic);
+            tracing::error!(error = chain(&panic), "solar event task panicked; solar triggers stop until restart");
         }
     });
 

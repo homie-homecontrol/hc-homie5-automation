@@ -5,6 +5,7 @@ use color_eyre::eyre::{self, eyre, Result};
 use config_watcher::ConfigItemHash;
 use hc_homie5::device::HomieDevice;
 use hc_homie5::homie_device;
+use hc_homie5::logging::{chain, truncate, PAYLOAD_MAX};
 use hc_homie5::store::DeviceStore;
 use hc_homie5_smarthome::{
     air_quality_node::AirQualityNodeBuilder, alarm_node::AlarmNodeBuilder, battery_node::BatteryNodeBuilder,
@@ -383,12 +384,25 @@ impl HomieDevice for VirtualDevice {
     async fn handle_set_command(&mut self, property: &PropertyRef, _set_value: &str) -> Result<(), Self::ResultError> {
         if let Some(prop) = self.properties.get_mut(property.prop_pointer()) {
             // pass on to propery
-            if let Some(Ok(value)) = self
+            match self
                 .device_desc
                 .with_property(property, |prop_desc| HomieValue::parse(_set_value, prop_desc))
             {
-                prop.handle_set_command(value, &self.homie_client, &self.mqtt_client, &self.homie_proto)
-                    .await?;
+                Some(Ok(value)) => {
+                    prop.handle_set_command(value, &self.homie_client, &self.mqtt_client, &self.homie_proto)
+                        .await?;
+                }
+                Some(Err(err)) => {
+                    tracing::warn!(
+                        vdevice = %property.device_id(),
+                        node = %property.node_id(),
+                        property = %property.prop_id(),
+                        value = truncate(_set_value, PAYLOAD_MAX),
+                        error = chain(&err),
+                        "invalid set command value rejected"
+                    );
+                }
+                None => {}
             }
         }
         Ok(())

@@ -9,6 +9,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+use hc_homie5::logging::chain;
+
 use crate::panic_guard::contain;
 use crate::rules::{RuleAction, RuleTriggerEvent};
 
@@ -77,7 +79,7 @@ impl TimerManager {
         // finally remove its own entry. The self-removal locks `timers`, so it
         // is blocked until `spawn_and_register` has inserted the handle.
         let body = async move {
-            log::debug!("Timer {} created with delay {:?}", id_task, duration);
+            tracing::trace!(timer = %id_task, delay_ms = duration.as_millis() as u64, "timer task started");
 
             // Wait for the initial delay
             tokio::time::sleep(duration).await;
@@ -91,12 +93,12 @@ impl TimerManager {
                 })
                 .await
             {
-                log::warn!("Error sending timer trigger: [{}] - {}", id_task, err);
+                tracing::debug!(timer = %id_task, error = chain(&err), "cannot deliver timer event");
             }
 
             // If an interval is configured, start repeating
             if let Some(interval_duration) = repeat {
-                log::debug!("Timer {} set to repeat every {:?}", id_task, interval_duration);
+                tracing::trace!(timer = %id_task, repeat_ms = interval_duration.as_millis() as u64, "timer repeating");
 
                 let mut interval = tokio::time::interval(interval_duration);
                 interval.tick().await; // Skip the immediate first tick
@@ -112,7 +114,7 @@ impl TimerManager {
                         })
                         .await
                     {
-                        log::warn!("Error sending timer trigger: [{}] - {}", id_task, err);
+                        tracing::debug!(timer = %id_task, error = chain(&err), "cannot deliver timer event");
                     }
                 }
             }
@@ -140,7 +142,7 @@ impl TimerManager {
         if let Some(timer) = timers.remove(id) {
             // Cancel the timer by aborting the task
             timer.handle.abort();
-            log::debug!("Timer {} cancelled.", id);
+            tracing::trace!(timer = %id, "timer task aborted");
         }
     }
 
@@ -149,7 +151,7 @@ impl TimerManager {
         timers.retain(|id, timer| {
             if timer.rule_hash == rule_hash {
                 timer.handle.abort();
-                log::debug!("Timer {} cancelled.", id);
+                tracing::debug!(timer = %id, "timer cancelled");
                 false
             } else {
                 true
@@ -157,7 +159,7 @@ impl TimerManager {
         });
     }
     pub fn clear(&self) {
-        log::debug!("Removing all timers");
+        tracing::debug!("all timers cancelled");
         let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         for (_, timer) in timers.drain() {
             timer.handle.abort();
@@ -170,7 +172,7 @@ impl TimerManager {
 fn normalize_timer_durations(id: &str, duration: Duration, repeat: Option<Duration>) -> (Duration, Option<Duration>) {
     let repeat = match repeat {
         Some(interval) if interval.is_zero() => {
-            log::warn!("Timer {} has a zero repeat interval; it fires once", id);
+            tracing::warn!(timer = %id, "timer repeat interval is zero; timer fires once");
             None
         }
         other => other.map(|interval| interval.min(MAX_TIMER_DURATION)),
@@ -197,7 +199,7 @@ fn spawn_and_register<V>(
     let mut guard = timers.lock().unwrap_or_else(PoisonError::into_inner);
     let handle = tokio::spawn(async move {
         if let Err(panic) = contain(body).await {
-            log::error!("Timer task panicked: {}", panic);
+            tracing::error!(error = chain(&panic), "timer task panicked");
         }
     });
     guard.insert(id, make_entry(handle));

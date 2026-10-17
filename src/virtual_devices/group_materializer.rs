@@ -37,6 +37,23 @@ use super::{
     AggregateFunctionType, CompoundSpec, GroupSpec, MemberSpec, VirtualDeviceSpec, VirtualNodeSpec, VirtualPropertySpec,
 };
 
+/// Level of the member conflicts found during materialization: WARN when a group device is
+/// added, DEBUG when it is rebuilt after a member change (the conflicts were reported at the add).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConflictReport {
+    Warn,
+    Debug,
+}
+
+macro_rules! report_conflict {
+    ($report:expr, $($arg:tt)+) => {
+        match $report {
+            ConflictReport::Warn => tracing::warn!($($arg)+),
+            ConflictReport::Debug => tracing::debug!($($arg)+),
+        }
+    };
+}
+
 /// Result of materializing a group device spec.
 #[derive(Debug)]
 pub struct MaterializedGroup {
@@ -58,6 +75,21 @@ pub struct MaterializedGroup {
 /// A spec without a `group` is passed through unchanged (`exclude` flags are
 /// meaningless there and ignored with a warning).
 pub fn materialize(spec: &VirtualDeviceSpec, devices: &DeviceStore, domain: &HomieDomain) -> MaterializedGroup {
+    materialize_reporting(spec, devices, domain, ConflictReport::Warn)
+}
+
+/// [`materialize`] for the rebuild of an existing group device; member conflicts are logged at
+/// DEBUG only.
+pub fn rematerialize(spec: &VirtualDeviceSpec, devices: &DeviceStore, domain: &HomieDomain) -> MaterializedGroup {
+    materialize_reporting(spec, devices, domain, ConflictReport::Debug)
+}
+
+fn materialize_reporting(
+    spec: &VirtualDeviceSpec,
+    devices: &DeviceStore,
+    domain: &HomieDomain,
+    report: ConflictReport,
+) -> MaterializedGroup {
     let Some(group) = &spec.group else {
         warn_about_ignored_excludes(spec);
         let spec = spec.clone();
@@ -65,7 +97,7 @@ pub fn materialize(spec: &VirtualDeviceSpec, devices: &DeviceStore, domain: &Hom
         return MaterializedGroup { spec, structure_hash };
     };
 
-    let generated = generate_nodes(&spec.id, group, devices, domain);
+    let generated = generate_nodes(&spec.id, group, devices, domain, report);
     let nodes = apply_overlays(&spec.id, generated, &spec.nodes);
 
     let spec = VirtualDeviceSpec {
@@ -88,19 +120,19 @@ pub fn materialize(spec: &VirtualDeviceSpec, devices: &DeviceStore, domain: &Hom
 fn warn_about_ignored_excludes(spec: &VirtualDeviceSpec) {
     for node in &spec.nodes {
         if node.exclude.is_some() {
-            log::warn!(
-                "[vdevice:{}] 'exclude' on node '{}' is ignored: the device is not a group device",
-                spec.id,
-                node.id
+            tracing::warn!(
+                vdevice = %spec.id,
+                node = %node.id,
+                "'exclude' on a node of a non-group device is ignored"
             );
         }
         for prop in &node.properties {
             if prop.exclude.is_some() {
-                log::warn!(
-                    "[vdevice:{}] 'exclude' on property '{}/{}' is ignored: the device is not a group device",
-                    spec.id,
-                    node.id,
-                    prop.id
+                tracing::warn!(
+                    vdevice = %spec.id,
+                    node = %node.id,
+                    property = %prop.id,
+                    "'exclude' on a property of a non-group device is ignored"
                 );
             }
         }
@@ -133,16 +165,17 @@ fn generate_nodes(
     group: &GroupSpec,
     devices: &DeviceStore,
     domain: &HomieDomain,
+    report: ConflictReport,
 ) -> Vec<VirtualNodeSpec> {
     let mut nodes: BTreeMap<HomieID, NodeAccumulator<'_>> = BTreeMap::new();
 
     for (member_idx, device_id) in group.devices.iter().enumerate() {
         let device_ref = DeviceRef::new(domain.clone(), device_id.clone());
         let Some(description) = devices.get_device(&device_ref).and_then(|d| d.description.as_ref()) else {
-            log::debug!(
-                "[group:{}] member device '{}' not discovered yet (or no description) -- skipping",
-                group_id,
-                device_id
+            tracing::debug!(
+                vdevice = %group_id,
+                device = %device_id,
+                "group member not discovered yet or without description; skipped"
             );
             continue;
         };
@@ -178,10 +211,12 @@ fn generate_nodes(
             let properties: Vec<VirtualPropertySpec> = acc
                 .props
                 .into_iter()
-                .map(|(prop_id, candidates)| merge_property(group_id, group, domain, &node_id, prop_id, candidates))
+                .map(|(prop_id, candidates)| {
+                    merge_property(group_id, group, domain, &node_id, prop_id, candidates, report)
+                })
                 .collect();
             if properties.is_empty() {
-                log::debug!("[group:{}] node '{}' has no remaining properties -- dropping", group_id, node_id);
+                tracing::debug!(vdevice = %group_id, node = %node_id, "group node has no properties left; dropped");
                 return None;
             }
             Some(VirtualNodeSpec {
@@ -208,19 +243,21 @@ fn merge_property(
     node_id: &HomieID,
     prop_id: HomieID,
     candidates: Vec<PropCandidate<'_>>,
+    report: ConflictReport,
 ) -> VirtualPropertySpec {
     // --- datatype vote: majority wins, ties broken by member list order ---
     let datatype = vote_datatype(&candidates);
     let (winners, losers): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|c| c.desc.datatype == datatype);
     for loser in &losers {
-        log::warn!(
-            "[group:{}] dropping '{}/{}/{}' from compound: datatype {} conflicts with majority datatype {}",
-            group_id,
-            loser.device_id,
-            node_id,
-            prop_id,
-            loser.desc.datatype,
-            datatype
+        report_conflict!(
+            report,
+            vdevice = %group_id,
+            device = %loser.device_id,
+            node = %node_id,
+            property = %prop_id,
+            datatype = %loser.desc.datatype,
+            majority_datatype = %datatype,
+            "group member property dropped: datatype conflicts with the majority"
         );
     }
 
@@ -232,7 +269,7 @@ fn merge_property(
     let retained = winners[0].desc.retained;
 
     for winner in &winners {
-        format = merge_formats(group_id, node_id, &prop_id, winner.device_id, format, &winner.desc.format);
+        format = merge_formats(group_id, node_id, &prop_id, winner.device_id, format, &winner.desc.format, report);
         settable |= winner.desc.settable;
         if name.is_none() {
             name = winner.desc.name.clone();
@@ -241,13 +278,14 @@ fn merge_property(
             unit = winner.desc.unit.clone();
         }
         if winner.desc.retained != retained {
-            log::warn!(
-                "[group:{}] retained mismatch for '{}/{}/{}': using retained={} from first member",
-                group_id,
-                winner.device_id,
-                node_id,
-                prop_id,
-                retained
+            report_conflict!(
+                report,
+                vdevice = %group_id,
+                device = %winner.device_id,
+                node = %node_id,
+                property = %prop_id,
+                retained,
+                "group member retained flag differs; using the first member's"
             );
         }
     }
@@ -316,7 +354,7 @@ fn apply_overlays(
         .into_iter()
         .filter_map(|node| match overlays.iter().find(|o| o.id == node.id) {
             Some(overlay) if overlay.exclude == Some(true) => {
-                log::debug!("[group:{}] node '{}' removed by overlay exclude", group_id, node.id);
+                tracing::debug!(vdevice = %group_id, node = %node.id, "group node removed by overlay exclude");
                 None
             }
             Some(overlay) => overlay_node(group_id, node, overlay),
@@ -330,10 +368,10 @@ fn apply_overlays(
             continue;
         }
         if overlay.exclude == Some(true) {
-            log::debug!(
-                "[group:{}] overlay node '{}' has exclude set but nothing was generated for it -- skipping",
-                group_id,
-                overlay.id
+            tracing::debug!(
+                vdevice = %group_id,
+                node = %overlay.id,
+                "overlay exclude matches no generated group node; skipped"
             );
             continue;
         }
@@ -348,10 +386,10 @@ fn apply_overlays(
 fn overlay_node(group_id: &HomieID, generated: VirtualNodeSpec, overlay: &VirtualNodeSpec) -> Option<VirtualNodeSpec> {
     let properties = overlay_properties(group_id, &generated.id, generated.properties, &overlay.properties);
     if properties.is_empty() && overlay.from_smarthome.is_none() {
-        log::debug!(
-            "[group:{}] node '{}' has no remaining properties after overlay -- dropping",
-            group_id,
-            generated.id
+        tracing::debug!(
+            vdevice = %group_id,
+            node = %generated.id,
+            "group node has no properties left after overlay; dropped"
         );
         return None;
     }
@@ -384,7 +422,12 @@ fn overlay_properties(
         .into_iter()
         .filter_map(|prop| match overlays.iter().find(|o| o.id == prop.id) {
             Some(overlay) if overlay.exclude == Some(true) => {
-                log::debug!("[group:{}] property '{}/{}' removed by overlay exclude", group_id, node_id, prop.id);
+                tracing::debug!(
+                    vdevice = %group_id,
+                    node = %node_id,
+                    property = %prop.id,
+                    "group property removed by overlay exclude"
+                );
                 None
             }
             Some(overlay) => Some(overlay_property(prop, overlay)),
@@ -397,11 +440,11 @@ fn overlay_properties(
             continue;
         }
         if overlay.exclude == Some(true) {
-            log::debug!(
-                "[group:{}] overlay property '{}/{}' has exclude set but nothing was generated for it -- skipping",
-                group_id,
-                node_id,
-                overlay.id
+            tracing::debug!(
+                vdevice = %group_id,
+                node = %node_id,
+                property = %overlay.id,
+                "overlay exclude matches no generated group property; skipped"
             );
             continue;
         }
@@ -534,6 +577,7 @@ fn merge_formats(
     device_id: &HomieID,
     acc: HomiePropertyFormat,
     next: &HomiePropertyFormat,
+    report: ConflictReport,
 ) -> HomiePropertyFormat {
     match (acc, next) {
         (HomiePropertyFormat::Empty, next) => next.clone(),
@@ -570,14 +614,15 @@ fn merge_formats(
         }
         (acc, next) => {
             if &acc != next {
-                log::warn!(
-                    "[group:{}] format conflict for '{}/{}/{}': keeping '{}' over '{}' (first wins)",
-                    group_id,
-                    device_id,
-                    node_id,
-                    prop_id,
-                    acc,
-                    next
+                report_conflict!(
+                    report,
+                    vdevice = %group_id,
+                    device = %device_id,
+                    node = %node_id,
+                    property = %prop_id,
+                    format = %acc,
+                    ignored_format = %next,
+                    "group member format conflicts; keeping the first member's"
                 );
             }
             acc

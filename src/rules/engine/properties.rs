@@ -1,7 +1,8 @@
 use crate::rules::RuleTrigger;
+use hc_homie5::logging::{chain, truncate, PAYLOAD_MAX};
 use hc_homie5::model::DiscoveryAction;
 use hc_homie5::store::DeviceStore;
-use homie5::{HomieValue, PropertyRef, ToTopic};
+use homie5::{HomieValue, PropertyRef};
 
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 
@@ -11,11 +12,13 @@ pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
             match ctx.vdm.update_member_value_prop(prop, to).await {
                 Ok(_) => {}
                 Err(err) => {
-                    log::warn!(
-                        "Error updating virtual devices with value for {} - {}: {}",
-                        prop.to_topic().build(),
-                        to,
-                        err
+                    tracing::warn!(
+                        device = %prop.device_id(),
+                        node = %prop.node_id(),
+                        property = %prop.prop_id(),
+                        value = truncate(&to.to_string(), PAYLOAD_MAX),
+                        error = chain(err.as_ref()),
+                        "cannot update virtual devices from property value"
                     );
                 }
             }
@@ -37,11 +40,13 @@ pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
             match ctx.vdm.update_member_value_prop(prop, value).await {
                 Ok(_) => {}
                 Err(err) => {
-                    log::warn!(
-                        "Error updating virtual devices with value for {} - {}: {}",
-                        prop.to_topic().build(),
-                        value,
-                        err
+                    tracing::warn!(
+                        device = %prop.device_id(),
+                        node = %prop.node_id(),
+                        property = %prop.prop_id(),
+                        value = truncate(&value.to_string(), PAYLOAD_MAX),
+                        error = chain(err.as_ref()),
+                        "cannot update virtual devices from property value"
                     );
                 }
             }

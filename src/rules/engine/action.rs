@@ -1,6 +1,7 @@
 use super::RuleContext;
 use crate::lua_runtime::{
-    new_sandboxed_lua, setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore, LuaVirtualDevice,
+    install_print, new_sandboxed_lua, setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore,
+    LuaVirtualDevice,
 };
 use crate::panic_guard::contain;
 use crate::rules::{MapSetFrom, RuleAction, TimerDef};
@@ -12,6 +13,7 @@ use crate::{
 use color_eyre::eyre::{eyre, Result};
 use config_watcher::ConfigItemHash;
 use hc_homie5::client::HomieMQTTClient;
+use hc_homie5::logging::{chain, truncate, PAYLOAD_MAX};
 use hc_homie5::value::MappingResult;
 use homie5::{HomieValue, PropertyRef, ToTopic};
 use mlua::ExternalResult;
@@ -42,33 +44,58 @@ pub async fn run_rule_actions<'a>(
         .map(|f| f.to_owned())
         .unwrap_or_default();
 
-    log::debug!("{} ({}) -- rule triggered", rule.name, filename);
+    let prop = trigger_event.property_ref();
+    tracing::info!(
+        rule = %rule.name,
+        file = %filename,
+        trigger = trigger_event.trigger_type(),
+        device = prop.map(|p| tracing::field::display(p.device_id())),
+        node = prop.map(|p| tracing::field::display(p.node_id())),
+        property = prop.map(|p| tracing::field::display(p.prop_id())),
+        value = trigger_value(&trigger_event),
+        timer = trigger_event.timer_id(),
+        topic = trigger_event.mqtt_topic(),
+        "rule fired"
+    );
     for (index, action) in rule.actions.iter().enumerate() {
-        log::debug!("{}.action[{}] -- action started", rule.name, index);
+        tracing::debug!(rule = %rule.name, action = index, "rule action started");
         let started = Instant::now();
         match contain(execute_rule_action(rule_hash, &rule.name, action, &trigger_event, ctx, false)).await {
             Ok(Ok(_)) => {
-                log::debug!("{}.action[{}] -- action finished", rule.name, index);
+                tracing::debug!(rule = %rule.name, action = index, "rule action finished");
             }
             Ok(Err(err)) => {
-                log::error!("{}.action[{}] -- Error executing rule action no: {}", rule.name, index, err);
+                tracing::error!(rule = %rule.name, action = index, error = chain(err.as_ref()), "rule action failed");
             }
             Err(panic) => {
-                log::error!("{}.action[{}] -- rule action panicked, skipped: {}", rule.name, index, panic);
+                tracing::error!(rule = %rule.name, action = index, error = chain(&panic), "rule action panicked");
             }
         }
         let elapsed = started.elapsed();
         if elapsed > SLOW_ACTION_WARN_THRESHOLD {
-            log::warn!(
-                "{}.action[{}] -- slow rule action took {:?} (threshold {:?}); actions run inline and delay event processing",
-                rule.name,
-                index,
-                elapsed,
-                SLOW_ACTION_WARN_THRESHOLD
+            // Actions run inline and delay all further event processing.
+            tracing::warn!(
+                rule = %rule.name,
+                action = index,
+                duration_ms = elapsed.as_millis() as u64,
+                threshold_ms = SLOW_ACTION_WARN_THRESHOLD.as_millis() as u64,
+                "slow rule action"
             );
         }
     }
-    log::debug!("{} ({}) -- rule finished", rule.name, filename);
+    tracing::debug!(rule = %rule.name, "rule finished");
+}
+
+/// The value that fired a trigger, for the `rule fired` line.
+fn trigger_value(event: &RuleTriggerEvent<'_>) -> Option<String> {
+    match event {
+        RuleTriggerEvent::PropertyChanged { to, .. } => Some(truncate(&to.to_string(), PAYLOAD_MAX)),
+        RuleTriggerEvent::PropertyTriggered { value, .. } => Some(truncate(&value.to_string(), PAYLOAD_MAX)),
+        RuleTriggerEvent::OnSet { value, .. } => Some(truncate(value, PAYLOAD_MAX)),
+        RuleTriggerEvent::Mqtt(event) => Some(truncate(&event.payload, PAYLOAD_MAX)),
+        RuleTriggerEvent::Solar(event) => Some(format!("{:?}", event)),
+        RuleTriggerEvent::Timer(_) | RuleTriggerEvent::Cron(_) => None,
+    }
 }
 
 pub async fn execute_rule_action<'a>(
@@ -82,7 +109,7 @@ pub async fn execute_rule_action<'a>(
     match action {
         RuleAction::Set { target, value, timer } => {
             if ignore_timer || timer.is_none() {
-                set_targets(ctx, target, value).await?;
+                set_targets(ctx, rule_name, target, value).await?;
             } else if let Some(timer) = timer {
                 // Handle the timer if it exists
                 handle_timer(rule_hash, rule_name, Some(action.clone()), trigger_event, timer, ctx.timers).await?;
@@ -90,62 +117,25 @@ pub async fn execute_rule_action<'a>(
         }
         RuleAction::MapSet { target, mapping, timer } => {
             if ignore_timer || timer.is_none() {
-                match trigger_event {
-                    RuleTriggerEvent::PropertyChanged { to, .. } => {
-                        if let MappingResult::Mapped(value) = mapping.map_to(&MapSetFrom::HomieValue(Cow::Borrowed(to)))
-                        {
-                            set_targets(ctx, target, value).await?;
-                        }
-                    }
-                    RuleTriggerEvent::PropertyTriggered { value, .. } => {
-                        if let MappingResult::Mapped(value) =
-                            mapping.map_to(&MapSetFrom::HomieValue(Cow::Borrowed(value)))
-                        {
-                            set_targets(ctx, target, value).await?;
-                        }
-                    }
-                    RuleTriggerEvent::OnSet { value, .. } => {
-                        if let MappingResult::Mapped(value) = mapping.map_to(&MapSetFrom::String(Cow::Borrowed(value)))
-                        {
-                            set_targets(ctx, target, value).await?;
-                        }
-                    }
-                    RuleTriggerEvent::Timer(cow) => {
-                        if let MappingResult::Mapped(value) =
-                            mapping.map_to(&MapSetFrom::String(Cow::Borrowed(&cow.id)))
-                        {
-                            set_targets(ctx, target, value).await?;
-                        }
-                    }
-                    RuleTriggerEvent::Mqtt(cow) => {
-                        if let MappingResult::Mapped(value) =
-                            mapping.map_to(&MapSetFrom::String(Cow::Borrowed(&cow.payload)))
-                        {
-                            set_targets(ctx, target, value).await?;
-                        }
-                    }
-                    RuleTriggerEvent::Solar(cow) => match cow {
-                        Cow::Borrowed(SolarEvent::At(solar_phase))
-                        | Cow::Borrowed(SolarEvent::After(solar_phase, _))
-                        | Cow::Borrowed(SolarEvent::Before(solar_phase, _)) => {
-                            if let MappingResult::Mapped(value) =
-                                mapping.map_to(&MapSetFrom::SolarPhase(Cow::Borrowed(solar_phase)))
-                            {
-                                set_targets(ctx, target, value).await?;
-                            }
-                        }
-                        Cow::Owned(SolarEvent::At(solar_phase))
-                        | Cow::Owned(SolarEvent::After(solar_phase, _))
-                        | Cow::Owned(SolarEvent::Before(solar_phase, _)) => {
-                            if let MappingResult::Mapped(value) =
-                                mapping.map_to(&MapSetFrom::SolarPhase(Cow::Borrowed(solar_phase)))
-                            {
-                                set_targets(ctx, target, value).await?;
-                            }
-                        }
+                let from = match trigger_event {
+                    RuleTriggerEvent::PropertyChanged { to, .. } => MapSetFrom::HomieValue(Cow::Borrowed(to)),
+                    RuleTriggerEvent::PropertyTriggered { value, .. } => MapSetFrom::HomieValue(Cow::Borrowed(value)),
+                    RuleTriggerEvent::OnSet { value, .. } => MapSetFrom::String(Cow::Borrowed(value)),
+                    RuleTriggerEvent::Timer(cow) => MapSetFrom::String(Cow::Borrowed(&cow.id)),
+                    RuleTriggerEvent::Mqtt(cow) => MapSetFrom::String(Cow::Borrowed(&cow.payload)),
+                    RuleTriggerEvent::Solar(cow) => match cow.as_ref() {
+                        SolarEvent::At(solar_phase)
+                        | SolarEvent::After(solar_phase, _)
+                        | SolarEvent::Before(solar_phase, _) => MapSetFrom::SolarPhase(Cow::Borrowed(solar_phase)),
                     },
                     _ => return Ok(()),
                 };
+                match mapping.map_to(&from) {
+                    MappingResult::Mapped(value) => set_targets(ctx, rule_name, target, value).await?,
+                    MappingResult::Unmapped(_) => {
+                        tracing::debug!(rule = %rule_name, "map_set has no mapping for the trigger value; nothing sent");
+                    }
+                }
             } else if let Some(timer) = timer {
                 handle_timer(rule_hash, rule_name, Some(action.clone()), trigger_event, timer, ctx.timers).await?;
             }
@@ -165,13 +155,22 @@ pub async fn execute_rule_action<'a>(
 
                         match value {
                             Some(HomieValue::Bool(value)) => Some((target, HomieValue::Bool(!*value))),
-                            _ => None,
+                            _ => {
+                                tracing::debug!(
+                                    rule = %rule_name,
+                                    device = %target.device_id(),
+                                    node = %target.node_id(),
+                                    property = %target.prop_id(),
+                                    "toggle target has no boolean value; skipped"
+                                );
+                                None
+                            }
                         }
                     })
                     .collect::<Vec<_>>()
             };
 
-            set_target_commands(ctx, commands).await?;
+            set_target_commands(ctx, rule_name, commands).await?;
         }
         RuleAction::Mqtt {
             topic,
@@ -182,6 +181,14 @@ pub async fn execute_rule_action<'a>(
             ctx.mqtt_client
                 .publish(topic, HomieMQTTClient::map_qos(qos), *retain, value.as_bytes())
                 .await?;
+            tracing::info!(
+                rule = %rule_name,
+                topic = %topic,
+                payload = truncate(value, PAYLOAD_MAX),
+                retain = *retain,
+                source = "rule",
+                "message published"
+            );
         }
         RuleAction::Timer { timer } => {
             handle_timer(rule_hash, rule_name, None, trigger_event, timer, ctx.timers).await?;
@@ -195,13 +202,13 @@ pub async fn execute_rule_action<'a>(
             script_timeout,
         } => {
             if ignore_timer || timer.is_none() {
-                log::debug!("{} -- starting script", rule_name);
+                tracing::debug!(rule = %rule_name, "script started");
                 match run_script(script, rule_hash, rule_name, *script_timeout, trigger_event, ctx).await {
                     Ok(_) => {
-                        log::debug!("{} -- script run successfull", rule_name);
+                        tracing::debug!(rule = %rule_name, "script finished");
                     }
                     Err(err) => {
-                        log::error!("{} -- Error running script: {}", rule_name, err)
+                        tracing::error!(rule = %rule_name, error = chain(&err), "script failed")
                     }
                 }
             } else if let Some(timer) = timer {
@@ -213,34 +220,71 @@ pub async fn execute_rule_action<'a>(
     Ok(())
 }
 
-async fn set_targets(ctx: &RuleContext<'_>, targets: &crate::rules::ActionTargets, value: &HomieValue) -> Result<()> {
+async fn set_targets(
+    ctx: &RuleContext<'_>,
+    rule_name: &str,
+    targets: &crate::rules::ActionTargets,
+    value: &HomieValue,
+) -> Result<()> {
     let mut attempts = 0;
     let mut failures = 0;
 
     for target in targets.iter() {
         attempts += 1;
-        if let Err(err) = ctx.dm.set_command(target, value).await {
+        if !send_command(ctx, rule_name, target, value).await {
             failures += 1;
-            log::error!("failed to set target {}: {}", target, err);
         }
     }
 
     target_failures_result(failures, attempts)
 }
 
-async fn set_target_commands(ctx: &RuleContext<'_>, commands: Vec<(&PropertyRef, HomieValue)>) -> Result<()> {
+async fn set_target_commands(
+    ctx: &RuleContext<'_>,
+    rule_name: &str,
+    commands: Vec<(&PropertyRef, HomieValue)>,
+) -> Result<()> {
     let mut attempts = 0;
     let mut failures = 0;
 
     for (target, value) in commands {
         attempts += 1;
-        if let Err(err) = ctx.dm.set_command(target, &value).await {
+        if !send_command(ctx, rule_name, target, &value).await {
             failures += 1;
-            log::error!("failed to set target {}: {}", target, err);
         }
     }
 
     target_failures_result(failures, attempts)
+}
+
+/// Sends one `/set` command of a rule action and logs it; returns false if it failed.
+async fn send_command(ctx: &RuleContext<'_>, rule_name: &str, target: &PropertyRef, value: &HomieValue) -> bool {
+    match ctx.dm.set_command(target, value).await {
+        Ok(()) => {
+            tracing::info!(
+                rule = %rule_name,
+                device = %target.device_id(),
+                node = %target.node_id(),
+                property = %target.prop_id(),
+                value = truncate(&value.to_string(), PAYLOAD_MAX),
+                source = "rule",
+                "command sent"
+            );
+            true
+        }
+        Err(err) => {
+            tracing::error!(
+                rule = %rule_name,
+                device = %target.device_id(),
+                node = %target.node_id(),
+                property = %target.prop_id(),
+                value = truncate(&value.to_string(), PAYLOAD_MAX),
+                error = chain(&err),
+                "command failed"
+            );
+            false
+        }
+    }
 }
 
 fn target_failures_result(failures: usize, attempts: usize) -> Result<()> {
@@ -274,13 +318,21 @@ async fn handle_timer(
         if let Some(value) = trigger_event.value() {
             if cancelcondition.evaluate(value) {
                 timers.cancel_timer(&timer_id);
-                log::debug!("{} -- Cancelled timer: {}", rule_name, &timer_id);
+                tracing::debug!(rule = %rule_name, timer = %timer_id, "timer cancelled by cancel condition");
                 cancelled = true;
             }
         }
     }
 
     if !cancelled {
+        tracing::debug!(
+            rule = %rule_name,
+            timer = %timer_id,
+            delay_ms = timer_def.duration.as_millis() as u64,
+            repeat_ms = timer_def.repeat.map(|repeat| repeat.as_millis() as u64),
+            delayed_action = action.is_some(),
+            "timer scheduled"
+        );
         let trigger_event = action.is_some().then(|| trigger_event.clone());
         timers.create_timer(rule_hash, timer_id, timer_def.duration, timer_def.repeat, action, trigger_event);
     }
@@ -304,18 +356,23 @@ pub(crate) async fn run_script(
     trigger_event: &RuleTriggerEvent<'_>,
     ctx: &RuleContext<'_>,
 ) -> mlua::Result<()> {
-    log::trace!("preparing script run");
     let budget = effective_script_budget(script_timeout, ctx.lua_script_timeout);
     let lua = new_sandboxed_lua(ctx.lua_memory_limit)?;
+    install_print(&lua, rule_name)?;
 
-    let lua_homie = LuaHomie { dm: ctx.dm.clone() };
+    let lua_homie = LuaHomie {
+        dm: ctx.dm.clone(),
+        rule: rule_name.to_owned(),
+    };
     let lua_virtual_device = LuaVirtualDevice {
         vdm: ctx.vdm.as_proxy(),
+        rule: rule_name.to_owned(),
     };
 
     let lua_timer = LuaTimer {
         timers: ctx.timers.clone(),
         rule_hash,
+        rule: rule_name.to_owned(),
     };
 
     let lua_value_store = LuaValueStore {
@@ -328,6 +385,7 @@ pub(crate) async fn run_script(
 
     let lua_utils = LuaUtils {
         mqtt_client: ctx.mqtt_client.clone(),
+        rule: rule_name.to_owned(),
     };
 
     // Set the function in the Lua environment
@@ -343,9 +401,8 @@ pub(crate) async fn run_script(
     setup_custom_loader(&lua, ctx.lmm.file_contents()).await?;
 
     // run the script with a bounded execution budget
-    log::trace!("executing script (budget {:?})", budget);
+    tracing::trace!(rule = %rule_name, budget_ms = budget.as_millis() as u64, "executing script");
     exec_script_with_budget(&lua, script, budget, rule_name).await?;
-    log::trace!("finished executing script");
     Ok(())
 }
 

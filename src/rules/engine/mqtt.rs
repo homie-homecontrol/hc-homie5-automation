@@ -5,13 +5,19 @@ use crate::{
 };
 use color_eyre::eyre::Result;
 use hc_homie5::client::HomieMQTTClient;
+use hc_homie5::logging::{chain, truncate, PAYLOAD_MAX};
 use hc_homie5::store::DeviceStore;
 
 pub async fn run_mqtt_rules(event: &MqttPublishEvent, ctx: &RuleContext<'_>) {
     match ctx.vdm.update_member_value_mqtt(&event.topic, &event.payload).await {
         Ok(_) => {}
         Err(err) => {
-            log::warn!("Error updating virtual devices with value for {} - {}: {}", event.topic, event.payload, err);
+            tracing::warn!(
+                topic = %event.topic,
+                payload = truncate(&event.payload, PAYLOAD_MAX),
+                error = chain(err.as_ref()),
+                "cannot update virtual devices from MQTT message"
+            );
         }
     }
     let devices = ctx.dm.read().await;

@@ -4,7 +4,6 @@ use hc_homie5::store::DeviceStore;
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 
 pub async fn run_timer_rules(event: &TimerEvent, ctx: &RuleContext<'_>) {
-    log::debug!("Timer Event: {:#?}", event);
     let devices = &ctx.dm.read().await;
     for (hash, rule) in ctx.rules.iter().filter(|(_, rule)| {
         rule.triggers

@@ -2,7 +2,8 @@
 
 use std::collections::HashSet;
 
-use mlua::{Lua, Value};
+use hc_homie5::logging::{truncate, PAYLOAD_MAX};
+use mlua::{Lua, Value, Variadic};
 
 /// Default memory limit for one script VM (64 MiB).
 pub const DEFAULT_LUA_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
@@ -40,6 +41,31 @@ pub fn new_sandboxed_lua(memory_limit: usize) -> mlua::Result<Lua> {
     lua.load(SANDBOX_PRELUDE).set_name("=sandbox").exec()?;
     lua.set_memory_limit(memory_limit)?;
     Ok(lua)
+}
+
+/// Replaces Lua's `print`, which writes to stdout, with a DEBUG `lua print` event that carries the
+/// rule name.
+pub fn install_print(lua: &Lua, rule: &str) -> mlua::Result<()> {
+    let rule = rule.to_owned();
+    let print = lua.create_function(move |lua, args: Variadic<Value>| {
+        let message = print_message(lua, args)?;
+        tracing::debug!(rule = %rule, message = truncate(&message, PAYLOAD_MAX), "lua print");
+        Ok(())
+    })?;
+    lua.globals().set("print", print)
+}
+
+/// Converts the arguments with `tostring` and joins them with tabs, as Lua's `print` does.
+fn print_message(lua: &Lua, args: Variadic<Value>) -> mlua::Result<String> {
+    let tostring: mlua::Function = lua.globals().get("tostring")?;
+    let mut message = String::new();
+    for (index, arg) in args.into_iter().enumerate() {
+        if index > 0 {
+            message.push('\t');
+        }
+        message.push_str(&tostring.call::<mlua::String>(arg)?.to_string_lossy());
+    }
+    Ok(message)
 }
 
 /// Fails if `value` contains tables nested deeper than [`MAX_TABLE_NESTING`].
@@ -108,6 +134,22 @@ mod tests {
             assert_eq!(eval_str(&lua, &format!("return type({global})")), "nil", "{global}");
         }
         assert!(eval(&lua, "os.exit(1)").is_err());
+    }
+
+    #[test]
+    fn print_formats_like_lua_print() {
+        let lua = new_sandboxed_lua(DEFAULT_LUA_MEMORY_LIMIT).unwrap();
+        let format = lua.create_function(print_message).unwrap();
+        lua.globals().set("format_print", format).unwrap();
+        assert_eq!(eval_str(&lua, "return format_print('state:', false, 1, nil)"), "state:\tfalse\t1\tnil");
+        assert_eq!(eval_str(&lua, "return format_print()"), "");
+    }
+
+    #[test]
+    fn installed_print_does_not_fail() {
+        let lua = new_sandboxed_lua(DEFAULT_LUA_MEMORY_LIMIT).unwrap();
+        install_print(&lua, "rule").unwrap();
+        assert!(eval(&lua, "print('a', {}, 1.5)").is_ok());
     }
 
     #[test]

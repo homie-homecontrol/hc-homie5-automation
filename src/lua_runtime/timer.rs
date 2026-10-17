@@ -6,11 +6,21 @@ use std::time::Duration;
 pub struct LuaTimer {
     pub timers: TimerManager,
     pub rule_hash: ConfigItemHash,
+    /// Name of the rule running the script, for logs.
+    pub rule: String,
 }
 
 impl UserData for LuaTimer {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("create", |_, timer, (id, duration, repeat): (String, u64, Option<u64>)| {
+            tracing::debug!(
+                rule = %timer.rule,
+                timer = %id,
+                delay_ms = duration.saturating_mul(1000),
+                repeat_ms = repeat.map(|repeat| repeat.saturating_mul(1000)),
+                source = "lua",
+                "timer scheduled"
+            );
             timer.timers.create_timer(
                 timer.rule_hash,
                 id,
@@ -23,6 +33,7 @@ impl UserData for LuaTimer {
         });
         methods.add_method("cancel", |_, timer, id: String| {
             timer.timers.cancel_timer(&id);
+            tracing::debug!(rule = %timer.rule, timer = %id, source = "lua", "timer cancelled");
 
             Ok(())
         });

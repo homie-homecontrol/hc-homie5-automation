@@ -12,6 +12,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+use hc_homie5::logging::chain;
+
 use crate::panic_guard::contain;
 
 #[derive(Debug)]
@@ -64,7 +66,7 @@ impl CronManager {
         let handle = tokio::spawn(async move {
             let schedule_task = run_cron_schedule(task_cron_schedule, id_task, rule_hash, trigger_index, sender);
             if let Err(panic) = contain(schedule_task).await {
-                log::error!("Cron schedule {} panicked and stopped: {}", task_id, panic);
+                tracing::error!(cron = %task_id, error = chain(&panic), "cron schedule panicked and stopped");
             }
         });
 
@@ -81,7 +83,7 @@ impl CronManager {
         if let Some(schedule) = cron_schedules.remove(id) {
             // Cancel the timer by aborting the task
             schedule.handle.abort();
-            log::debug!("Schedule {} cancelled.", id);
+            tracing::trace!(cron = %id, "cron schedule aborted");
         }
     }
 
@@ -90,7 +92,7 @@ impl CronManager {
         cron_schedules.retain(|id, schedule| {
             if schedule.rule_hash == rule_hash {
                 schedule.handle.abort();
-                log::debug!("Schedule {} cancelled.", id);
+                tracing::debug!(cron = %id, "cron schedule cancelled");
                 false
             } else {
                 true
@@ -99,7 +101,7 @@ impl CronManager {
     }
 
     pub fn clear(&self) {
-        log::debug!("Removing all cron schedules");
+        tracing::debug!("all cron schedules cancelled");
         let mut cron_schedules = self.cron_schedules.lock().unwrap_or_else(PoisonError::into_inner);
         for (_, schedule) in cron_schedules.drain() {
             schedule.handle.abort();
@@ -116,10 +118,8 @@ async fn run_cron_schedule(
     sender: Sender<CronEvent>,
 ) {
     let Ok(schedule) = Schedule::from_str(&cron_schedule) else {
-        log::error!(
-            "Invalid cron expression: [{}] - 7 fields required, like [* * * * * * *] (sec, min, hour, day of month, month, day of week, year)",
-            cron_schedule
-        );
+        // Reported with the rule name when the rule is loaded (`rules::engine::cron::schedule_cron`).
+        tracing::debug!(cron = %id, schedule = %cron_schedule, "invalid cron schedule; schedule not started");
         return;
     };
 
@@ -131,7 +131,7 @@ async fn run_cron_schedule(
             .to_std()
             .unwrap_or_else(|_| std::time::Duration::from_secs(0));
 
-        log::debug!("{} - next execution at: {}", id, next.with_timezone(&Local));
+        tracing::debug!(cron = %id, next = %next.with_timezone(&Local), "cron schedule waiting");
         tokio::time::sleep(delay).await;
 
         // Send the event via the channel
@@ -143,7 +143,7 @@ async fn run_cron_schedule(
             })
             .await
         {
-            log::error!("Error sending cron event: {:?}", err);
+            tracing::debug!(cron = %id, error = chain(&err), "cannot deliver cron event");
         }
     }
 }

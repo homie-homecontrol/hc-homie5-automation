@@ -1,17 +1,19 @@
 use app::{deinitialize_app, initialize_app};
-use app_env::{initialize_logging, initialize_panic_handler};
+use app_env::install_panic_hook;
 use color_eyre::eyre::Result;
 use eventloop::run_event_loop;
+use hc_homie5::{
+    logging::{self, chain},
+    util::UnwrapOrExit,
+};
 use hc_homie5_automation::app_state::AppEvent;
+use settings::ENV_PREFIX;
 mod app;
 mod app_env;
 mod eventloop;
 mod settings;
 
 async fn run_application() -> Result<()> {
-    initialize_logging()?;
-    initialize_panic_handler()?;
-
     let (
         mut event_multiplexer,
         homie_discovery_client,
@@ -38,11 +40,13 @@ async fn run_application() -> Result<()> {
 // #[tokio::main]
 //#[tokio::main(worker_threads = 1)]
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
-    if let Err(e) = run_application().await {
-        eprintln!("{} fatal error: {:?}", env!("CARGO_PKG_NAME"), e);
-        Err(e)
-    } else {
-        Ok(())
+async fn main() {
+    logging::init(hc_homie5::log_config!(&ENV_PREFIX)).unwrap_or_exit("cannot initialize logging");
+    install_panic_hook();
+
+    if let Err(err) = run_application().await {
+        tracing::error!(error = chain(err.as_ref()), "fatal error");
+        std::process::exit(1);
     }
+    tracing::info!("stopped");
 }
