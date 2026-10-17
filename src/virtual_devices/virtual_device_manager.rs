@@ -242,6 +242,7 @@ impl VirtualDeviceManager {
         if let Some(mut dev) = vdevices.remove(&id) {
             tracing::debug!(vdevice = %dev.homie_id(), "removing virtual device");
             dev.cancel_all_mqtt_reads().await?;
+            dev.release_mqtt_members().await?;
             dev.disconnect_device().await?;
             {
                 let mut index = self.index.write().await;
@@ -371,6 +372,7 @@ impl VirtualDeviceManager {
             if let Some(mut dev) = vdevices.remove(&device_ref) {
                 tracing::debug!(vdevice = %original_spec.id, "group device torn down for rebuild");
                 dev.cancel_all_mqtt_reads().await?;
+                dev.release_mqtt_members().await?;
                 dev.disconnect_device().await?;
                 let mut index = self.index.write().await;
                 index.remove_indexes_for_virtual_device(&device_ref);
@@ -501,12 +503,13 @@ impl VirtualDeviceManager {
     pub async fn update_member_value_prop(&self, prop: &PropertyRef, value: &HomieValue) -> Result<()> {
         let mut vdevices = self.devices.write().await;
         let index = self.index.read().await;
+        let devices = self.dm.read().await;
 
         let indexes = index.lookup_index(prop);
         if let Some(indexes) = indexes {
             for index in indexes.iter() {
                 if let Some(vdevice) = vdevices.get_mut(index.device_ref()) {
-                    vdevice.update_member_value_prop(prop, value).await?;
+                    vdevice.update_member_value_prop(prop, value, &devices).await?;
                 }
             }
         }
@@ -536,8 +539,9 @@ impl VirtualDeviceManager {
 
     pub async fn update_member_value_mqtt(&self, topic: &str, value: &str) -> Result<()> {
         let mut vdevices = self.devices.write().await;
+        let devices = self.dm.read().await;
         for (_, vdevice) in vdevices.iter_mut() {
-            vdevice.update_member_value_mqtt(topic, value).await?;
+            vdevice.update_member_value_mqtt(topic, value, &devices).await?;
         }
         Ok(())
     }

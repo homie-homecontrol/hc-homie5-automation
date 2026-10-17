@@ -315,6 +315,10 @@ impl ManagedMqttClient {
 
     pub async fn resubscribe(&self) -> Result<(), MqttClientError> {
         let subs = self.subscriptions.read().await;
+        // rumqttc rejects an empty subscribe client-side
+        if subs.iter().next().is_none() {
+            return Ok(());
+        }
         self.client
             .subscribe_many(
                 subs.iter()
@@ -322,6 +326,21 @@ impl ManagedMqttClient {
             )
             .await?;
         Ok(())
+    }
+
+    /// Tracked QoS and subscriber count of `topic`.
+    #[cfg(test)]
+    pub(crate) async fn subscription(&self, topic: &str) -> Option<(QoS, usize)> {
+        self.subscriptions.read().await.map.get(topic).copied()
+    }
+
+    /// A client without a broker connection; keep the returned event loop alive so requests can
+    /// be queued.
+    #[cfg(test)]
+    pub(crate) fn offline() -> (Self, rumqttc::EventLoop) {
+        let (client, eventloop) = AsyncClient::new(MqttOptions::new("test", "localhost", 1883), 64);
+        let (tracker, observer) = PendingPublishTracker::new();
+        (Self::new(client, observer, tracker.queued_counter()), eventloop)
     }
 
     #[allow(dead_code)]
@@ -392,5 +411,17 @@ mod tests {
         let remaining: Vec<_> = tracker.iter().collect();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].0, "shared");
+    }
+
+    fn offline_client() -> ManagedMqttClient {
+        // the event loop is dropped right away, so every client request fails
+        let (client, _) = AsyncClient::new(MqttOptions::new("test", "localhost", 1883), 10);
+        let (tracker, observer) = PendingPublishTracker::new();
+        ManagedMqttClient::new(client, observer, tracker.queued_counter())
+    }
+
+    #[tokio::test]
+    async fn resubscribe_without_tracked_topics_sends_nothing() {
+        offline_client().resubscribe().await.unwrap();
     }
 }

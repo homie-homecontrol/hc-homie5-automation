@@ -1,6 +1,6 @@
 use std::{fs, iter, time::Duration};
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, WrapErr};
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState, ConnectionState},
     lua_runtime::LuaModuleManager,
@@ -23,7 +23,7 @@ use hc_homie5_automation::{
     device_manager::DeviceManager,
     mqtt_client::{run_mqtt_client, MqttClientHandle},
     rule_manager::RuleManager,
-    rules::Rule,
+    rules::{parse_rule, Rule},
     solar_events::{run_solar_event_task, SolarEventHandle},
     timer_manager::TimerManager,
     virtual_devices::{VirtualDeviceManager, VirtualDeviceSpec},
@@ -147,7 +147,10 @@ pub async fn initialize_app(
     // Setup configuration watchers
     // =====================================================
 
-    let deserialize_rules = |doc: &str| parse_document::<Rule>(doc);
+    let deserialize_rules = |doc: &str| {
+        contain_sync(|| parse_rule(doc))
+            .unwrap_or_else(|panic| Err(<serde_yaml_ng::Error as serde::de::Error>::custom(panic)))
+    };
 
     let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
         || run_config_backend(settings, &settings.app.rules_config, "Rules", "rules", "*.yaml", "-cfg-r"),
@@ -215,7 +218,11 @@ pub async fn initialize_app(
             namespace,
             resource_type,
         } => KeyValueStore::Kubernetes(KubernetesStore::new(namespace, name, *resource_type).await?),
-        ValueStoreConfig::Sqlite { path } => KeyValueStore::SQLite(SQLiteStore::new(path).await),
+        ValueStoreConfig::Sqlite { path } => KeyValueStore::SQLite(
+            SQLiteStore::new(path)
+                .await
+                .wrap_err_with(|| format!("cannot open SQLite value store {path}"))?,
+        ),
     };
 
     // Setup EventMultiPlexer
@@ -252,6 +259,7 @@ pub async fn initialize_app(
             mqtt_client: mqtt_client.clone(),
             app_event_sender,
             should_exit: false,
+            exit_error: None,
             mqtt_state: ConnectionState::Init,
             discovery_state: ConnectionState::Init,
             virtual_devices_state: ConnectionState::Init,

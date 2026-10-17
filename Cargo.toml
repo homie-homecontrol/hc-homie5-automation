@@ -27,12 +27,17 @@ config_watcher = "0.12.0"
 homie5 = { version = "0.12", features = ["ext-meta"] }
 hc-homie5-smarthome = { version = "0.10" }
 hc-homie5 = { version = "0.12", features = ["ext-meta", "logging"] }
-simple_kv_store = { version = "0.2.0" }
+simple_kv_store = { version = "0.3.0" }
 regex = "1.11.1"
 
 [dev-dependencies]
+tokio = { version = "1.41.0", features = ["full", "test-util"] }
 chrono-tz = "0.10"
 
 [[bin]]
 name = "hc-homie5-automation"
 path = "src/bin/hc-homie5-automation/main.rs"
+
+# TEMPORARY: simple_kv_store 0.3.0 is not released yet; remove after publishing it.
+[patch.crates-io]
+simple_kv_store = { path = "../simple_kv_store" }

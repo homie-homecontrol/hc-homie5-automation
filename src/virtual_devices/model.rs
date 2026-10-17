@@ -59,6 +59,36 @@ pub struct VirtualDeviceSpec {
     pub nodes: Vec<VirtualNodeSpec>,
 }
 
+impl VirtualDeviceSpec {
+    /// Returns problems that let the device load but silently change or ignore configuration.
+    pub fn validate(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if self.version.is_some() {
+            warnings.push("`version` is ignored".to_string());
+        }
+        if self.parent.is_some() {
+            warnings.push("`parent` is ignored".to_string());
+        }
+        if !self.extensions.is_empty() {
+            warnings.push("`extensions` is ignored".to_string());
+        }
+        // group overlays patch generated properties that carry their datatype
+        if self.group.is_none() {
+            for node in self.nodes.iter().filter(|node| node.from_smarthome.is_none()) {
+                for prop in node.properties.iter().filter(|prop| prop.datatype.is_none()) {
+                    warnings.push(format!(
+                        "property {}/{} has no datatype and no from_smarthome base, defaulting to {}",
+                        node.id,
+                        prop.id,
+                        HomieDataType::default()
+                    ));
+                }
+            }
+        }
+        warnings
+    }
+}
+
 /// Configuration for an auto-materialized group device.
 ///
 /// All nodes and properties of the listed member devices are unioned into
@@ -358,10 +388,11 @@ pub struct VirtualPropertyConfig {
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct VirtualPropertyOptions {
     #[serde(default)]
     pub read_from_mqtt: bool,
-    #[serde(deserialize_with = "deserialize_optional_duration")]
+    #[serde(default, deserialize_with = "deserialize_optional_duration")]
     pub read_timeout: Option<Duration>,
 }
 
@@ -378,8 +409,12 @@ pub struct CompoundSpec {
     /// `None` means "not specified": defaults to `equal` at evaluation time
     /// and keeps the generated aggregate when used as a group-device overlay.
     pub aggregate_function: Option<AggregateFunctionType>,
+    /// Unset: 200 ms for retained properties, none for non-retained (event) properties.
     #[serde(deserialize_with = "deserialize_optional_duration", default)]
     pub aggregation_debounce: Option<Duration>,
+    /// Longest time a debounced aggregate waits while member updates keep arriving (default 1s).
+    #[serde(deserialize_with = "deserialize_optional_duration", default)]
+    pub aggregation_max_wait: Option<Duration>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -401,6 +436,7 @@ pub enum MemberSpec {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct MqttWrapperChannel<FROM, TO>
 where
     FROM: ValueMatcher + PartialEq + PartialOrd + Default + std::fmt::Debug,
@@ -427,6 +463,19 @@ pub enum AggregateFunctionType {
     AvgCeil,
     Max,
     Min,
+}
+
+impl AggregateFunctionType {
+    /// Whether the function can produce a value for properties of `datatype`.
+    pub fn fits(&self, datatype: HomieDataType) -> bool {
+        match self {
+            Self::Equal => true,
+            Self::Or | Self::And | Self::Nor | Self::Nand => matches!(datatype, HomieDataType::Boolean),
+            Self::Avg | Self::AvgCeil | Self::Max | Self::Min => {
+                matches!(datatype, HomieDataType::Integer | HomieDataType::Float)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -706,6 +755,73 @@ nodes:
         .expect("tag form must keep parsing on the direct path");
         let compound = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
         assert_eq!(compound.mapping.as_ref().unwrap().output.0[0].to, HomieValue::Bool(false));
+    }
+
+    #[test]
+    fn mqtt_wrapper_channel_rejects_unknown_field() {
+        let res = serde_yaml_ng::from_str::<MqttWrapperChannel<String, HomieValue>>(
+            "topic: a/b\nmapping: []\nretain: true\n",
+        );
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    #[test]
+    fn virtual_property_options_rejects_unknown_field() {
+        serde_yaml_ng::from_str::<VirtualPropertyOptions>("read_from_mqtt: true\nread_timeout: 3s\n").unwrap();
+        let res = serde_yaml_ng::from_str::<VirtualPropertyOptions>("read_from_mqt: true\nread_timeout: 3s\n");
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    #[test]
+    fn virtual_property_options_read_timeout_is_optional() {
+        let opts: VirtualPropertyOptions = serde_yaml_ng::from_str("read_from_mqtt: true\n").unwrap();
+        assert!(opts.read_from_mqtt);
+        assert!(opts.read_timeout.is_none());
+    }
+
+    #[test]
+    fn example_member_mapping_uses_input_output() {
+        let raw = include_str!("../../virtual_devices/test.vdevice.yaml");
+        let spec = serde_yaml_ng::Deserializer::from_str(raw)
+            .map(|doc| VirtualDeviceSpec::deserialize(doc).unwrap())
+            .find(|spec| spec.id.as_str() == "wr-waschmaschine")
+            .unwrap();
+        let compound = spec.nodes[0].properties[0].compound_spec.as_ref().unwrap();
+        let MemberSpec::PropertyRefMember { mapping, .. } = &compound.members[0] else {
+            panic!("expected a property member with mapping");
+        };
+        assert_eq!(mapping.input.len(), 2);
+    }
+
+    #[test]
+    fn validate_warns_on_manual_property_without_datatype() {
+        let spec = parse("id: d\nnodes:\n  - id: n\n    properties:\n      - id: p\n").unwrap();
+        assert_eq!(spec.validate().len(), 1, "{:?}", spec.validate());
+        let spec =
+            parse("id: d\nnodes:\n  - id: n\n    properties:\n      - id: p\n        datatype: integer\n").unwrap();
+        assert!(spec.validate().is_empty());
+        let spec = parse(
+            "id: d\nnodes:\n  - id: n\n    from_smarthome:\n      type: contact\n    properties:\n      - id: state\n",
+        )
+        .unwrap();
+        assert!(spec.validate().is_empty());
+    }
+
+    #[test]
+    fn validate_warns_on_ignored_device_fields() {
+        let spec = parse("id: d\nversion: 3\nparent: p\nextensions: [x]\n").unwrap();
+        assert_eq!(spec.validate().len(), 3, "{:?}", spec.validate());
+        assert!(parse("id: d\n").unwrap().validate().is_empty());
+    }
+
+    #[test]
+    fn aggregate_function_fits_datatype() {
+        use AggregateFunctionType::*;
+        assert!(Equal.fits(HomieDataType::String));
+        assert!(Or.fits(HomieDataType::Boolean));
+        assert!(!Or.fits(HomieDataType::Integer));
+        assert!(Avg.fits(HomieDataType::Float));
+        assert!(!Max.fits(HomieDataType::Boolean));
     }
 
     /// Regression guard: every document of the shipped example file keeps

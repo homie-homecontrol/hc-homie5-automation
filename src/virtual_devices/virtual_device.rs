@@ -237,22 +237,25 @@ impl VirtualDevice {
         &mut self,
         prop: &PropertyRef,
         value: &HomieValue,
-        // devices: &DeviceStore,
+        devices: &DeviceStore,
     ) -> Result<()> {
         for (_, vprop) in self.properties.iter_mut() {
-            vprop.update_member_value_prop(prop, value).await?;
+            if vprop.update_member_value_prop(prop, value).await? {
+                vprop
+                    .recalculate_value(devices, &self.homie_client, &self.homie_proto)
+                    .await?;
+            }
         }
         Ok(())
     }
 
-    pub async fn update_member_value_mqtt(
-        &mut self,
-        topic: &str,
-        value: &str,
-        // devices: &DeviceStore
-    ) -> Result<()> {
+    pub async fn update_member_value_mqtt(&mut self, topic: &str, value: &str, devices: &DeviceStore) -> Result<()> {
         for (_, vprop) in self.properties.iter_mut() {
-            vprop.update_member_value_mqtt(topic, value).await?;
+            if vprop.update_member_value_mqtt(topic, value).await? {
+                vprop
+                    .recalculate_value(devices, &self.homie_client, &self.homie_proto)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -349,6 +352,14 @@ impl VirtualDevice {
         Ok(())
     }
 
+    /// Releases the MQTT member subscriptions of all properties.
+    pub async fn release_mqtt_members(&self) -> Result<()> {
+        for vprop in self.properties.values() {
+            vprop.release_mqtt_members(&self.mqtt_client).await?;
+        }
+        Ok(())
+    }
+
     pub async fn cancel_all_mqtt_reads(&mut self) -> Result<()> {
         for (_, vprop) in self.properties.iter_mut() {
             vprop.cancel_read_value_from_mqtt(&self.homie_client).await?;
@@ -376,7 +387,9 @@ impl HomieDevice for VirtualDevice {
 
     async fn publish_property_values(&mut self) -> Result<(), Self::ResultError> {
         for (_, virt_prop) in self.properties.iter() {
-            virt_prop.publish_value(&self.homie_client, self.homie_proto()).await?;
+            virt_prop
+                .republish_value(&self.homie_client, self.homie_proto())
+                .await?;
         }
         Ok(())
     }

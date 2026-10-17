@@ -172,6 +172,12 @@ impl TryFrom<String> for ValueStoreConfig {
     type Error = eyre::Report;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
+        let invalid = || {
+            eyre!(
+                "invalid value store config [{}]: use 'inmemory', 'sqlite:/path/to/filename.db' or 'kubernetes:secret|configmap,name[,namespace]'",
+                s
+            )
+        };
         let parts: Vec<&str> = s.splitn(2, ':').collect();
 
         match parts[0].to_lowercase().as_str() {
@@ -185,13 +191,15 @@ impl TryFrom<String> for ValueStoreConfig {
                 let resource_type = match kube_parts[0] {
                     "secret" => KubernetesResource::Secret,
                     "configmap" => KubernetesResource::ConfigMap,
-                    _ => KubernetesResource::ConfigMap,
+                    _ => return Err(invalid()),
                 };
-                let name = kube_parts[1].to_string();
-                let namespace = if kube_parts.len() == 3 {
-                    kube_parts[2].to_string()
-                } else {
-                    "default".to_string() // Use "default" if namespace is missing
+                let name = match kube_parts.get(1) {
+                    Some(name) if !name.is_empty() => name.to_string(),
+                    _ => return Err(invalid()),
+                };
+                let namespace = match kube_parts.get(2) {
+                    Some(namespace) => namespace.to_string(),
+                    None => "default".to_string(), // Use "default" if namespace is missing
                 };
                 Ok(ValueStoreConfig::Kubernetes {
                     name,
@@ -199,10 +207,7 @@ impl TryFrom<String> for ValueStoreConfig {
                     resource_type,
                 })
             }
-            _ => Err(eyre!(
-                "invalid value store config [{}]: use 'inmemory', 'sqlite:/path/to/filename.db' or 'kubernetes:secret|configmap,name[,namespace]'",
-                s
-            )),
+            _ => Err(invalid()),
         }
     }
 }
@@ -339,5 +344,41 @@ pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> Vir
             .then_some(app.controller_children_debounce),
         keep_alive_secs: KEEP_ALIVE_SECS,
         max_inflight_msgs: MAX_INFLIGHT_MSGS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn value_store(s: &str) -> Result<ValueStoreConfig, eyre::Report> {
+        ValueStoreConfig::try_from(s.to_string())
+    }
+
+    #[test]
+    fn kubernetes_value_store_without_name_is_an_error() {
+        assert!(value_store("kubernetes:secret").is_err());
+        assert!(value_store("kubernetes:secret,").is_err());
+    }
+
+    #[test]
+    fn kubernetes_value_store_rejects_unknown_resource_type() {
+        assert!(value_store("kubernetes:secrets,store").is_err());
+    }
+
+    #[test]
+    fn kubernetes_value_store_parses() {
+        let cfg = value_store("kubernetes:secret,store").unwrap();
+        assert!(matches!(
+            cfg,
+            ValueStoreConfig::Kubernetes { ref name, ref namespace, resource_type: KubernetesResource::Secret }
+                if name == "store" && namespace == "default"
+        ));
+        let cfg = value_store("kubernetes:configmap,store,home").unwrap();
+        assert!(matches!(
+            cfg,
+            ValueStoreConfig::Kubernetes { ref namespace, resource_type: KubernetesResource::ConfigMap, .. }
+                if namespace == "home"
+        ));
     }
 }

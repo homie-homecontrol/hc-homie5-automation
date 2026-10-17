@@ -13,9 +13,17 @@ impl UserData for LuaHomie {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method(
             "set_command",
-            |_, homie, (subject, value): (mlua::Value, LuaHomieValue)| async move {
+            |lua, homie, (subject, value): (mlua::Value, mlua::Value)| async move {
                 // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
                 let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
+                let desc = homie
+                    .dm
+                    .read()
+                    .await
+                    .get_device(prop.0.device_ref())
+                    .and_then(|device| device.description.as_ref())
+                    .and_then(|desc| desc.get_property(prop.0.prop_pointer()).cloned());
+                let value = LuaHomieValue::from_lua_for(value, &lua, desc.as_ref())?;
                 homie.dm.set_command(&prop.0, &value.0).await.into_lua_err()?;
                 tracing::info!(
                     rule = %homie.rule,

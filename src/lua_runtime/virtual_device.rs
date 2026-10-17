@@ -11,6 +11,24 @@ pub struct LuaVirtualDevice {
     pub rule: String,
 }
 
+impl LuaVirtualDevice {
+    /// Converts a Lua value for `prop`, parsing strings against its description.
+    async fn convert_value(
+        &self,
+        prop: &LuaPropertyRef,
+        value: mlua::Value,
+        lua: &mlua::Lua,
+    ) -> mlua::Result<LuaHomieValue> {
+        let desc = self
+            .vdm
+            .read()
+            .await
+            .get(prop.0.device_ref())
+            .and_then(|device| device.description().get_property(prop.0.prop_pointer()).cloned());
+        LuaHomieValue::from_lua_for(value, lua, desc.as_ref())
+    }
+}
+
 impl UserData for LuaVirtualDevice {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method(
@@ -33,9 +51,10 @@ impl UserData for LuaVirtualDevice {
                 Ok(())
             },
         );
-        methods.add_async_method("set_value", |_, homie, (subject, value): (mlua::Value, LuaHomieValue)| async move {
+        methods.add_async_method("set_value", |lua, homie, (subject, value): (mlua::Value, mlua::Value)| async move {
             // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
             let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
+            let value = homie.convert_value(&prop, value, &lua).await?;
             let logged_value = truncate(&value.0.to_string(), PAYLOAD_MAX);
             homie.vdm.set_value(&prop.0, value.0).await.into_lua_err()?;
             tracing::debug!(
@@ -51,9 +70,10 @@ impl UserData for LuaVirtualDevice {
         });
         methods.add_async_method(
             "set_command",
-            |_, homie, (subject, value): (mlua::Value, LuaHomieValue)| async move {
+            |lua, homie, (subject, value): (mlua::Value, mlua::Value)| async move {
                 // Convert the subject (string or LuaPropertyRef) into a LuaPropertyRef
                 let prop = LuaPropertyRef::try_from(subject).into_lua_err()?;
+                let value = homie.convert_value(&prop, value, &lua).await?;
                 let logged_value = truncate(&value.0.to_string(), PAYLOAD_MAX);
                 homie.vdm.set_command(&prop.0, value.0).await.into_lua_err()?;
                 tracing::info!(

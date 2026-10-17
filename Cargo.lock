@@ -2954,9 +2954,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simple_kv_store"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9836dd30f93d69185c4acf4f20f687307726922fbd365f995ad675d9e114205"
+version = "0.3.0"
 dependencies = [
  "base64",
  "k8s-openapi 0.26.1",

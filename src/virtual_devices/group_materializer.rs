@@ -327,6 +327,7 @@ fn merge_property(
             mapping: None,
             aggregate_function: Some(aggregate_function),
             aggregation_debounce,
+            aggregation_max_wait: None,
         }),
     }
 }
@@ -488,6 +489,7 @@ fn overlay_compound(generated: Option<CompoundSpec>, overlay: Option<&CompoundSp
             mapping: overlay.mapping.clone().or(generated.mapping),
             aggregate_function: overlay.aggregate_function.or(generated.aggregate_function),
             aggregation_debounce: overlay.aggregation_debounce.or(generated.aggregation_debounce),
+            aggregation_max_wait: overlay.aggregation_max_wait.or(generated.aggregation_max_wait),
         }),
     }
 }

@@ -37,6 +37,8 @@ pub struct AppState {
     pub mqtt_client: ManagedMqttClient,
     pub app_event_sender: Sender<AppEvent>,
     pub should_exit: bool,
+    /// Set when the controller shuts down because of a failure; the process then exits non-zero.
+    pub exit_error: Option<String>,
     pub mqtt_state: ConnectionState,
     pub discovery_state: ConnectionState,
     pub virtual_devices_state: ConnectionState,

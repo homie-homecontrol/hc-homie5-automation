@@ -1,6 +1,6 @@
 use app::{deinitialize_app, initialize_app};
 use app_env::install_panic_hook;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{eyre, Result};
 use eventloop::run_event_loop;
 use hc_homie5::{
     logging::{self, chain},
@@ -34,7 +34,10 @@ async fn run_application() -> Result<()> {
     // make sure the channels stay open until the end...
     drop(event_multiplexer);
 
-    Ok(())
+    match state.exit_error {
+        Some(err) => Err(eyre!(err)),
+        None => Ok(()),
+    }
 }
 
 // #[tokio::main]
