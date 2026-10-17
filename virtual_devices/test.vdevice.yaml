@@ -42,10 +42,10 @@ nodes:
           members:
             - property: leq0538979/hm-condition-power/decision
               mapping:
-                in:
+                input:
                   - { from: { Integer: 2 }, to: { Bool: true } }
                   - { to: { Bool: false } }
-                out: []
+                output: []
       - id: action
         settable: false
 ---

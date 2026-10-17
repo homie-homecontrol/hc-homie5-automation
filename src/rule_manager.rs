@@ -3,8 +3,8 @@ use crate::{
     device_manager::DeviceManager,
     mqtt_client::ManagedMqttClient,
     rules::{
-        add_solar_triggers, queries_init_materialized, schedule_cron, subscribe_mqtt_trigger, unsubscribe_mqtt_trigger,
-        Rule,
+        add_solar_triggers, queries_init_materialized, schedule_cron, self_triggering_mqtt_actions,
+        subscribe_mqtt_trigger, unsubscribe_mqtt_trigger, FiringDecision, FiringLimiter, Rule,
     },
     solar_events::SolarEventManager,
     timer_manager::TimerManager,
@@ -14,14 +14,19 @@ use color_eyre::eyre::Result;
 use config_watcher::ConfigItemHash;
 use homie5::{device_description::HomieDeviceDescription, DeviceRef};
 use std::{
+    cell::RefCell,
     collections::HashMap,
     ops::{Deref, DerefMut},
+    time::Instant,
 };
 
 #[derive(Default)]
 pub struct RuleManager {
     rules: HashMap<ConfigItemHash, Rule>,
     files: HashMap<u64, String>,
+    /// Per-rule firing rate limit; interior mutability because rules fire through `&RuleManager`
+    /// on the single-threaded event loop.
+    firing_limiter: RefCell<FiringLimiter<ConfigItemHash>>,
 }
 
 impl Deref for RuleManager {
@@ -40,10 +45,20 @@ impl DerefMut for RuleManager {
 
 impl RuleManager {
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `max_firings_per_sec == 0` disables the per-rule firing rate limit.
+    pub fn with_max_firings_per_sec(max_firings_per_sec: u32) -> Self {
         Self {
-            rules: HashMap::new(),
-            files: HashMap::new(),
+            firing_limiter: RefCell::new(FiringLimiter::new(max_firings_per_sec)),
+            ..Self::default()
         }
+    }
+
+    /// Records a firing of rule `hash` and decides whether it is within the rate limit.
+    pub fn check_firing(&self, hash: ConfigItemHash, now: Instant) -> FiringDecision {
+        self.firing_limiter.borrow_mut().check(hash, now)
     }
 
     pub fn add_rule_file(&mut self, hash: u64, filename: String) {
@@ -69,7 +84,15 @@ impl RuleManager {
         dm: &DeviceManager,
         vds: &HashMap<DeviceRef, VirtualDevice>,
     ) -> Result<&mut Rule> {
-        let rule = self.entry(hash).or_insert(rule);
+        let rule = self.rules.entry(hash).or_insert(rule);
+        for (action_topic, trigger_filter) in self_triggering_mqtt_actions(rule) {
+            tracing::warn!(
+                rule = %rule.name,
+                action_topic,
+                trigger_filter,
+                "mqtt action publishes into the rule's own trigger topic; the rule triggers itself"
+            );
+        }
         schedule_cron(hash, rule, cron);
         subscribe_mqtt_trigger(rule, mqtt_client).await?;
         add_solar_triggers(hash, rule, solar_events).await;
@@ -85,7 +108,8 @@ impl RuleManager {
         solar_events: &SolarEventManager,
         timers: &TimerManager,
     ) -> Result<Option<Rule>> {
-        if let Some(rule) = self.remove(&hash) {
+        if let Some(rule) = self.rules.remove(&hash) {
+            self.firing_limiter.get_mut().remove(&hash);
             timers.remove_timers_for_rule(hash);
             cron.remove_cron_schedule_for_rule(hash);
             solar_events.remove_triggers_by_rule(hash).await?;

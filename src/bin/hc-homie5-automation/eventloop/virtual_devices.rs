@@ -51,7 +51,7 @@ pub async fn handle_virtual_devices_client_event(event: HomieClientEvent, state:
             // meta messages are handled by the discovery client
         }
         HomieClientEvent::Stop => {
-            MqttConnection::VirtualDevices.stopped();
+            MqttConnection::VirtualDevices.handle_stop(state).await;
         }
         HomieClientEvent::Error(err) => {
             MqttConnection::VirtualDevices.failed(&mut state.virtual_devices_outage, &err);
@@ -73,6 +73,9 @@ pub async fn handle_virtual_devices_changes_event(
         ConfigItemEvent::New(hash, spec) => {
             let vdevice = spec.id.clone();
             let file = state.vdm.get_cfg_filename(&hash).await.unwrap_or_default();
+            for problem in spec.validate() {
+                tracing::warn!(vdevice = %vdevice, file = %file, problem, "virtual device misconfigured");
+            }
             match state.vdm.add_device(hash, spec).await {
                 Ok(vdev_ref) => {
                     tracing::info!(vdevice = %vdevice, file = %file, "virtual device added");

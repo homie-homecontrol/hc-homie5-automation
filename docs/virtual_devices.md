@@ -189,6 +189,7 @@ A **compound specification** (`compound_spec`) allows a property to aggregate va
 | **members**              | Yes      | array    | List of sources that contribute to the property value. Can be Homie properties, MQTT topics, or queries. |
 | **aggregate_function**   | No       | string   | Specifies how multiple values should be combined. Default: `"equal"`.                                    |
 | **aggregation_debounce** | No       | duration | Time period to wait before applying aggregation. Useful for stabilizing fluctuating values.              |
+| **aggregation_max_wait** | No       | duration | Longest time a debounced aggregate waits while updates keep arriving. Default: `1s`.                     |
 
 ### Aggregate Functions
 
@@ -470,11 +471,14 @@ When using **compound_spec**, the `aggregation_debounce` option ensures that rap
 
 | Key                      | Type   | Default | Description                                                                                 |
 | ------------------------ | ------ | ------- | ------------------------------------------------------------------------------------------- |
-| **aggregation_debounce** | string | `200ms` (effective fallback) | Ensures that a value is only updated after it remains unchanged for the specified duration. |
+| **aggregation_debounce** | string | `200ms` for retained properties, none for non-retained properties | Ensures that a value is only updated after it remains unchanged for the specified duration. |
+| **aggregation_max_wait** | string | `1s` | While updates keep arriving, the aggregate is still applied at least once per this interval. |
 
 ### How It Works
 
-If multiple values arrive in quick succession, **aggregation_debounce waits** until no further changes occur for the specified time before applying the latest value. This prevents excessive updates when values fluctuate rapidly.
+If multiple values arrive in quick succession, **aggregation_debounce waits** until no further changes occur for the specified time before applying the latest value. This prevents excessive updates when values fluctuate rapidly. A member that keeps updating faster than the debounce never leaves a quiet period, so **aggregation_max_wait** bounds the wait: the latest value is applied at the latest this long after the first update of a burst.
+
+Non-retained properties (events such as button actions) are not debounced unless `aggregation_debounce` is set explicitly: every member event is published right away, so two quick presses are never merged.
 
 ### Example: Stabilizing Average Brightness Calculation
 
@@ -523,6 +527,7 @@ Several configuration options such as `read_timeout` and `aggregation_debounce` 
 | `ms`   | `500ms` | Milliseconds |
 | `s`    | `5s`    | Seconds      |
 | `m`    | `2m`    | Minutes      |
+| `h`    | `1h`    | Hours        |
 | `d`    | `1d`    | Days         |
 
 ### Example: Multiple Timed Configurations

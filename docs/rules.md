@@ -105,6 +105,8 @@ Both `from` and `to` are optional.
 | x | | will trigger when a change from a certain value to any value occurs|
 | | | will trigger whenever the value changes|
 
+A change only fires when the controller observes it directly. Values that change while the controller is disconnected from the broker do not fire `changed` rules: after a reconnect all values are received again without a previous value, and those are not treated as changes. Rules that must react to the current state after an outage need another trigger, for example a `trigger_value` trigger or a scheduled check.
+
 #### Example `from` -> `to`
 
 ```yaml
@@ -271,6 +273,34 @@ triggers:
     - timer_id: light-timer
 ```
 
+### 7. Solar Trigger
+
+Triggered when the sun reaches a solar phase at the configured location (`HCACTL_LOCATION`, see [setup_config.md](setup_config.md); the default `0,0,0` logs a warning). The trigger fires once per occurrence, optionally shifted by an offset.
+
+Available config attributes:
+
+| Attribute    | Type                       | Description                                                                   |
+| ------------ | -------------------------- | ----------------------------------------------------------------------------- |
+| `sun_phase`  | solar phase                | `sunrise`, `sunset`, `sunriseEnd`, `sunsetStart`, `dawn`, `dusk`, `nauticalDawn`, `nauticalDusk`, `nightEnd`, `night`, `goldenHourEnd`, `goldenHour` |
+| `min_after`  | `duration`                 | fire this long after the phase (optional, e.g. `30m`)                         |
+| `min_before` | `duration`                 | fire this long before the phase (optional, e.g. `15m`)                        |
+| `while`      | list of `while-conditions` | additional conditions that need to be true for the trigger to fire            |
+
+Use at most one of `min_after` and `min_before`.
+
+#### Example
+
+```yaml
+triggers:
+    - sun_phase: sunset
+    - sun_phase: sunrise
+      min_after: 30m
+    - sun_phase: dusk
+      min_before: 15m
+```
+
+The first trigger fires at sunset, the second 30 minutes after sunrise and the third 15 minutes before dusk.
+
 ### While conditions
 
 Every trigger also has a while condition. A `while` is a list of expressions that need to evaluate to true in order for the trigger to actually fire.
@@ -396,7 +426,7 @@ Use either `target` or `targets`, not both.
 ```yml
 actions:
     - type: set
-      target: device_id/node_id/property_id
+      target: device-id/node-id/property-id
       value:
           Bool: true
 ```
@@ -560,7 +590,7 @@ The Toggle action toggles the state of one or more target properties (true -> fa
 For multi-target `toggle`, each target is toggled based on its own current boolean value in the device store. Targets are processed sequentially in the configured target order. If the current value for a target is missing or not a boolean, no command is sent for that target.
 
 - **Type**: `toggle`
-- **Target**: The `boolean` property to toggle (e.g., `device_id/node_id/property_id`)
+- **Target**: The `boolean` property to toggle (e.g., `device-id/node-id/property-id`)
 - **Targets**: A list of `boolean` properties to toggle
 
 Single-target example:
@@ -568,7 +598,7 @@ Single-target example:
 ```yml
 actions:
     - type: toggle
-      target: device_id/node_id/property_id
+      target: device-id/node-id/property-id
 ```
 
 Multi-target example:
@@ -603,7 +633,7 @@ Available fields are:
 actions:
     - type: run
       script: |
-          local prop = "device_id/node_id/property_id"
+          local prop = "device-id/node-id/property-id"
           homie:set_command(prop, true)
 ```
 
@@ -664,6 +694,10 @@ The Timer Definition is used to specify the settings for a timer. The available 
 | `cancelcondition` | `condition` | A condition that, if met, will cancel the timer. The condition can be a boolean value, a comparison of two values, or a more complex expression. | No       |
 
 Durations and repeat intervals longer than 100 years are clamped to 100 years.
+
+Timer ids are global: rules and Lua scripts share one timer namespace. Starting a timer with an id that is already running replaces (cancels) the running timer, even if another rule or script started it. Use distinct ids, or `triggerbound`, when timers must run independently.
+
+Editing a rule cancels its timers: a changed rule document is removed and loaded again as a new rule, and removing a rule cancels all timers it created. A pending timer of an edited rule therefore never fires; it starts again only when the edited rule triggers again.
 
 #### Triggerbound
 
@@ -743,7 +777,7 @@ Available fields are:
 | Attribute | Type      | Description                                                                         | Required |
 | --------- | --------- | ----------------------------------------------------------------------------------- | -------- |
 | `type`    | "mqtt"    | Defines the action type                                                             | Yes      |
-| `topic`   | `string`  | The MQTT topic to publish to (e.g., `homie/device_id/node_id/property_id`)          | Yes      |
+| `topic`   | `string`  | The MQTT topic to publish to (e.g., `homie/device-id/node-id/property-id`)          | Yes      |
 | `value`   | `string`  | The value to publish (e.g., `true`, `false`, `123`, etc.)                           | Yes      |
 | `qos`     | `QoS`     | The quality of service (e.g., `AtMostOnce`, `AtLeastOnce`, `ExactlyOnce` (default)) | No       |
 | `retain`  | `boolean` | Whether to retain the message (e.g., `true`, `false` (default))                     | No       |
@@ -782,3 +816,12 @@ actions:
 ```
 
 This example publishes a custom scene control message to an MQTT topic, which can be used to control custom scenes or devices that do not follow the standard Homie protocol.
+
+> Note: an `mqtt` action whose topic matches one of the rule's own MQTT trigger topics makes the rule trigger itself. See [Self-triggering rules](#self-triggering-rules).
+
+## Self-triggering rules
+
+A rule whose actions cause its own triggers to fire again loops endlessly, for example an MQTT trigger on `sensors/#` with an `mqtt` action publishing to `sensors/echo`. Two safeguards apply:
+
+- **Load-time warning:** when a rule is loaded, the controller logs a warning naming the rule, the action topic and the trigger topic filter if one of its `mqtt` actions publishes to a topic matched by one of its own MQTT triggers. Only topics written in the rule are checked; publishes from Lua scripts (`utils:mqtt_publish`), loops across several rules and property loops (set → changed → set) are not detected at load time.
+- **Runtime rate limit:** each rule may fire at most `HCACTL_RULE_MAX_FIRINGS_PER_SEC` times per second (default `20`, `0` disables the limit, see [setup_config.md](setup_config.md)). Firings beyond the limit within the same second are skipped, and one warning per second names the rule. The limit applies to every trigger type, so it also stops loops through Lua scripts, other rules or properties.

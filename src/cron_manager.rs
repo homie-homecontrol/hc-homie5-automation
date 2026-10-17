@@ -1,11 +1,10 @@
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
 use config_watcher::ConfigItemHash;
 use cron::Schedule;
 use std::{
     collections::HashMap,
     str::FromStr,
     sync::{Arc, Mutex, PoisonError},
-    time::SystemTime,
 };
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
@@ -123,13 +122,9 @@ async fn run_cron_schedule(
         return;
     };
 
-    // Iterate over the schedule and send events
-    for next in schedule.upcoming(Utc) {
-        // Calculate the delay
-        let now: DateTime<Utc> = SystemTime::now().into();
-        let delay = (next - now)
-            .to_std()
-            .unwrap_or_else(|_| std::time::Duration::from_secs(0));
+    // Cron fields are wall-clock times in the controller's local timezone (`TZ`).
+    for next in upcoming_instants(&schedule, Local::now()) {
+        let delay = (next - Utc::now()).to_std().unwrap_or_default();
 
         tracing::debug!(cron = %id, next = %next.with_timezone(&Local), "cron schedule waiting");
         tokio::time::sleep(delay).await;
@@ -145,5 +140,88 @@ async fn run_cron_schedule(
         {
             tracing::debug!(cron = %id, error = chain(&err), "cannot deliver cron event");
         }
+    }
+}
+
+/// Returns the instants after `after` at which `schedule` fires, evaluating its fields as wall-clock
+/// times in the timezone of `after`.
+///
+/// A wall-clock time that occurs twice when daylight saving time ends fires once, at its first
+/// occurrence. A wall-clock time skipped when daylight saving time starts does not fire.
+fn upcoming_instants<Z>(schedule: &Schedule, after: DateTime<Z>) -> impl Iterator<Item = DateTime<Utc>>
+where
+    Z: TimeZone + 'static,
+{
+    let mut previous: Option<NaiveDateTime> = None;
+    schedule
+        .after_owned(after)
+        .filter(move |next| {
+            let local = next.naive_local();
+            let repeated = previous == Some(local);
+            previous = Some(local);
+            !repeated
+        })
+        .map(|next| next.with_timezone(&Utc))
+}
+
+#[cfg(test)]
+mod cron_manager_tests {
+    use super::upcoming_instants;
+    use chrono::{DateTime, TimeZone, Utc};
+    use chrono_tz::Europe::Berlin;
+    use cron::Schedule;
+    use std::str::FromStr;
+
+    fn berlin(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<chrono_tz::Tz> {
+        Berlin
+            .with_ymd_and_hms(year, month, day, hour, minute, 0)
+            .single()
+            .unwrap()
+    }
+
+    fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
+            .single()
+            .unwrap()
+    }
+
+    fn next_instants(expression: &str, after: DateTime<chrono_tz::Tz>, count: usize) -> Vec<DateTime<Utc>> {
+        let schedule = Schedule::from_str(expression).unwrap();
+        upcoming_instants(&schedule, after).take(count).collect()
+    }
+
+    #[test]
+    fn weekend_schedule_fires_at_local_time_in_summer() {
+        // Friday 2026-10-16 is still CEST (UTC+2).
+        let fired = next_instants("0 30 7 * * Sat,Sun *", berlin(2026, 10, 16, 12, 0), 2);
+        assert_eq!(fired, vec![utc(2026, 10, 17, 5, 30), utc(2026, 10, 18, 5, 30)]);
+    }
+
+    #[test]
+    fn weekday_schedule_fires_at_local_time_in_winter() {
+        // Sunday 2026-12-06; December is CET (UTC+1).
+        let fired = next_instants("0 15 6 * * Mon-Fri *", berlin(2026, 12, 6, 12, 0), 2);
+        assert_eq!(fired, vec![utc(2026, 12, 7, 5, 15), utc(2026, 12, 8, 5, 15)]);
+    }
+
+    #[test]
+    fn schedule_keeps_local_time_across_daylight_saving_end() {
+        // CEST ends on Sunday 2026-10-25 at 03:00 local time.
+        let fired = next_instants("0 30 7 * * * *", berlin(2026, 10, 24, 12, 0), 2);
+        assert_eq!(fired, vec![utc(2026, 10, 25, 6, 30), utc(2026, 10, 26, 6, 30)]);
+    }
+
+    #[test]
+    fn repeated_local_time_fires_once_when_daylight_saving_ends() {
+        // 02:00 local time occurs at 00:00 and 01:00 UTC on 2026-10-25.
+        let fired = next_instants("0 0 2 * * * *", berlin(2026, 10, 24, 12, 0), 2);
+        assert_eq!(fired, vec![utc(2026, 10, 25, 0, 0), utc(2026, 10, 26, 1, 0)]);
+    }
+
+    #[test]
+    fn skipped_local_time_does_not_fire_when_daylight_saving_starts() {
+        // 02:00 to 03:00 local time does not exist on 2026-03-29.
+        let fired = next_instants("0 30 2 * * * *", berlin(2026, 3, 28, 12, 0), 1);
+        assert_eq!(fired, vec![utc(2026, 3, 30, 0, 30)]);
     }
 }

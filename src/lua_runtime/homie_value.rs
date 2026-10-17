@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use homie5::{HomieColorValue, HomieValue};
+use homie5::{device_description::HomiePropertyDescription, HomieColorValue, HomieValue};
 use mlua::{ExternalResult, IntoLua, LuaSerdeExt, Value};
 use mlua::{FromLua, Lua};
 
@@ -8,6 +8,18 @@ use super::check_nesting;
 
 #[derive(Debug, Clone)]
 pub struct LuaHomieValue(pub HomieValue);
+
+impl LuaHomieValue {
+    /// Converts a Lua value sent to a property. With the property description known, strings are
+    /// parsed against it, so they reach string and enum properties unchanged; without one the
+    /// generic conversion (which guesses the type of strings) applies.
+    pub fn from_lua_for(value: Value, lua: &Lua, desc: Option<&HomiePropertyDescription>) -> mlua::Result<Self> {
+        match (&value, desc) {
+            (Value::String(s), Some(desc)) => HomieValue::parse(&s.to_str()?, desc).map(LuaHomieValue).into_lua_err(),
+            _ => Self::from_lua(value, lua),
+        }
+    }
+}
 
 impl FromLua for LuaHomieValue {
     fn from_lua(lua_value: Value, lua: &Lua) -> mlua::Result<Self> {
@@ -68,5 +80,45 @@ impl IntoLua for LuaHomieValue {
             }
             HomieValue::JSON(json) => lua.to_value(&serde_json::to_string(&json).into_lua_err()?),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use homie5::device_description::PropertyDescriptionBuilder;
+
+    fn convert(raw: &str, desc: Option<&HomiePropertyDescription>) -> mlua::Result<HomieValue> {
+        let lua = Lua::new();
+        let value = Value::String(lua.create_string(raw).unwrap());
+        LuaHomieValue::from_lua_for(value, &lua, desc).map(|v| v.0)
+    }
+
+    #[test]
+    fn string_target_keeps_timestamp_like_string() {
+        let desc = PropertyDescriptionBuilder::string().build();
+        let value = convert("2024-01-01T10:00", Some(&desc)).unwrap();
+        assert_eq!(value, HomieValue::String("2024-01-01T10:00".to_string()));
+        assert_eq!(value.to_string(), "2024-01-01T10:00");
+    }
+
+    #[test]
+    fn enum_target_keeps_duration_like_string() {
+        let desc = PropertyDescriptionBuilder::enumeration(["PT5S", "off"])
+            .unwrap()
+            .build();
+        assert_eq!(convert("PT5S", Some(&desc)).unwrap(), HomieValue::Enum("PT5S".to_string()));
+    }
+
+    #[test]
+    fn string_is_parsed_against_numeric_target() {
+        let desc = PropertyDescriptionBuilder::integer().build();
+        assert_eq!(convert("42", Some(&desc)).unwrap(), HomieValue::Integer(42));
+        assert!(convert("forty-two", Some(&desc)).is_err());
+    }
+
+    #[test]
+    fn without_description_strings_are_still_sniffed() {
+        assert!(matches!(convert("PT5S", None).unwrap(), HomieValue::Duration(_)));
     }
 }

@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use hc_homie5::logging::{truncate, TRACE_PAYLOAD_MAX};
+use hc_homie5::logging::{chain, truncate, TRACE_PAYLOAD_MAX};
 use hc_homie5_automation::{
     app_state::{AppState, ConnectionEvent, ConnectionState},
     mqtt_client::MqttClientEvent,
@@ -14,8 +14,17 @@ pub async fn handle_mqtt_client_event(event: MqttClientEvent, state: &mut AppSta
             MqttConnection::Mqtt.connected(&mut state.mqtt_outage);
             let con_event = state.mqtt_state.change_state(ConnectionState::Connected);
             if let Some(ConnectionEvent::Reconnect) = con_event {
-                state.mqtt_client.resubscribe().await?;
-                state.meta.republish_all().await?;
+                // one failing step must not skip the other
+                if let Err(err) = state.mqtt_client.resubscribe().await {
+                    tracing::error!(connection = "mqtt", error = chain(&err), "cannot resubscribe after reconnect");
+                }
+                if let Err(err) = state.meta.republish_all().await {
+                    tracing::error!(
+                        connection = "mqtt",
+                        error = chain(err.as_ref()),
+                        "cannot republish meta overlays after reconnect"
+                    );
+                }
             }
             state.start_watchers().await;
         }
@@ -33,7 +42,7 @@ pub async fn handle_mqtt_client_event(event: MqttClientEvent, state: &mut AppSta
             run_mqtt_rules(&publish, &state.as_rule_ctx()).await;
         }
         MqttClientEvent::Stop => {
-            MqttConnection::Mqtt.stopped();
+            MqttConnection::Mqtt.handle_stop(state).await;
         }
         MqttClientEvent::Error(err) => {
             MqttConnection::Mqtt.failed(&mut state.mqtt_outage, &err);

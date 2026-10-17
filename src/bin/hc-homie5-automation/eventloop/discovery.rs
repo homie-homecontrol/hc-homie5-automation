@@ -97,7 +97,7 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
             state.meta_handler.handle_meta_message(event, &mut devices);
         }
         HomieClientEvent::Stop => {
-            MqttConnection::Discovery.stopped();
+            MqttConnection::Discovery.handle_stop(state).await;
         }
         HomieClientEvent::Error(err) => {
             MqttConnection::Discovery.failed(&mut state.discovery_outage, &err);

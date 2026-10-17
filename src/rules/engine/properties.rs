@@ -4,7 +4,7 @@ use hc_homie5::model::DiscoveryAction;
 use hc_homie5::store::DeviceStore;
 use homie5::{HomieValue, PropertyRef};
 
-use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
+use super::{matching_rules, run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 
 pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
     match event {
@@ -25,14 +25,12 @@ pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
             if from.is_none() {
                 return;
             }
-            let devices = ctx.dm.read().await;
-            for (hash, rule) in ctx.rules.iter().filter(|(_, rule)| {
-                rule.triggers
-                    .iter()
-                    .any(|trigger| match_prop_change(prop, trigger, from.as_ref(), to, &devices))
-            }) {
+            let matching = matching_rules(ctx.rules, &*ctx.dm.read().await, |trigger, devices| {
+                match_prop_change(prop, trigger, from.as_ref(), to, devices)
+            });
+            for (hash, rule) in matching {
                 if let Ok(event) = event.try_into() {
-                    run_rule_actions(*hash, rule, event, ctx).await;
+                    run_rule_actions(hash, rule, event, ctx).await;
                 }
             }
         }
@@ -50,14 +48,12 @@ pub async fn run_subject_rules(event: &DiscoveryAction, ctx: &RuleContext<'_>) {
                     );
                 }
             }
-            let devices = ctx.dm.read().await;
-            for (hash, rule) in ctx.rules.iter().filter(|(_, rule)| {
-                rule.triggers
-                    .iter()
-                    .any(|trigger| match_prop_trigger(prop, trigger, value, &devices))
-            }) {
+            let matching = matching_rules(ctx.rules, &*ctx.dm.read().await, |trigger, devices| {
+                match_prop_trigger(prop, trigger, value, devices)
+            });
+            for (hash, rule) in matching {
                 if let Ok(event) = event.try_into() {
-                    run_rule_actions(*hash, rule, event, ctx).await;
+                    run_rule_actions(hash, rule, event, ctx).await;
                 }
             }
         }

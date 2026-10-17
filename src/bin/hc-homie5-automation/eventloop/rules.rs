@@ -7,6 +7,10 @@ pub async fn handle_rules_changes_event(event: ConfigItemEvent<Rule>, state: &mu
     match event {
         ConfigItemEvent::New(hash, rule) => {
             let name = rule.name.clone();
+            for problem in rule.validate() {
+                let file = state.rules.get_filename(hash).map(String::as_str).unwrap_or("-");
+                tracing::warn!(rule = %name, file = %file, problem, "rule misconfigured");
+            }
             let result = state
                 .rules
                 .add_rule(

@@ -184,7 +184,7 @@ Field overview:
 Current `event.type` values (as emitted by implementation):
 
 - `changed`
-- `trigered` (spelling in current implementation)
+- `triggered`
 - `timer`
 - `cron`
 - `mqtt`
@@ -237,7 +237,7 @@ Understanding this mapping helps avoid subtle bugs when comparing values or publ
 | Lua value | HomieValue |
 | --- | --- |
 | `nil` | `Empty` |
-| `string` | Parsed as `Color`, `DateTime`, or `Duration` if format matches; otherwise `String` |
+| `string` | Parsed against the target property's description when it is known (see notes); otherwise parsed as `Color`, `DateTime`, or `Duration` if the format matches, else `String` |
 | `integer` | `Integer` |
 | `number` | `Float` |
 | `boolean` | `Bool` |
@@ -245,8 +245,8 @@ Understanding this mapping helps avoid subtle bugs when comparing values or publ
 
 Notes:
 
-- String values are not auto-converted to `Enum`.
-- If you need descriptor-based parsing from a raw string for virtual properties, use `virtual_device:set_str_value(...)`.
+- `homie:set_command`, `virtual_device:set_value` and `virtual_device:set_command` parse a string against the target property's description when the property is known, so a string reaches string and enum properties unchanged (e.g. `"2024-01-01T10:00"` stays a string) and `"42"` becomes an integer for an integer property. A string that does not fit the property is an error.
+- Without a known description, string values are not auto-converted to `Enum`.
 - If you receive JSON as string (for example from `event.value` on MQTT triggers), use `utils:from_json(...)`.
 
 ## Practical Patterns

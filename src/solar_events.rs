@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::time::Duration;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -161,27 +162,33 @@ pub fn run_solar_event_task(
 
     let handle = tokio::spawn(async move {
         let solar_task = async move {
-            let mut triggers: HashMap<ConfigItemHash, Vec<SolarEventTrigger>> = HashMap::new(); // Rule-hash -> Triggers
+            let mut scheduler = SolarScheduler::new(latitude, longitude, height, Utc::now());
+            let mut location_warned = false;
 
             loop {
-                let next_event = calculate_next_event(&triggers, latitude, longitude, height);
-
-                let delay = next_event
-                    .as_ref()
-                    .map(|(_, delay)| *delay)
+                let delay = scheduler
+                    .next_due()
+                    .map(|time| (time - Utc::now()).to_std().unwrap_or(Duration::ZERO))
                     .unwrap_or(Duration::from_secs(60)); // Default sleep if no event
 
                 tokio::select! {
                     // Handle trigger updates
                     Some(update) = updates_receiver.recv() => {
+                        // fire what became due before the update interrupted the sleep
+                        send_due(&mut scheduler, &event_sender).await;
                         match update {
                             TriggerUpdate::Add(trigger) => {
-                                triggers.entry(trigger.rule_hash)
-                                    .or_default()
-                                    .push(trigger);
+                                scheduler.add(trigger.rule_hash, trigger.event);
+                                if !location_warned && scheduler.location_unset() {
+                                    tracing::warn!(
+                                        setting = "HCACTL_LOCATION",
+                                        "solar triggers configured but the location is unset (0,0,0)"
+                                    );
+                                    location_warned = true;
+                                }
                             }
                             TriggerUpdate::RemoveByRule(rule_hash) => {
-                                triggers.remove(&rule_hash);
+                                scheduler.remove_by_rule(&rule_hash);
                             }
                         }
                     }
@@ -196,12 +203,7 @@ pub fn run_solar_event_task(
 
                     // Wait for the next event or default delay
                     _ = tokio::time::sleep(delay) => {
-                            if let Some((trigger, _)) = next_event {
-                                tracing::trace!(rule_hash = %trigger.rule_hash, event = ?trigger.event, "solar event due");
-                                if let Err(err) = event_sender.send(trigger.event.clone()).await {
-                                    tracing::debug!(event = ?trigger.event, error = chain(&err), "cannot deliver solar event");
-                                }
-                            }
+                        send_due(&mut scheduler, &event_sender).await;
                     }
                 }
             }
@@ -220,7 +222,16 @@ pub fn run_solar_event_task(
     )
 }
 
-/// How many days ahead [`calculate_next_event`] looks for a solar event.
+async fn send_due(scheduler: &mut SolarScheduler<ConfigItemHash>, event_sender: &mpsc::Sender<SolarEvent>) {
+    for event in scheduler.take_due(Utc::now()) {
+        tracing::trace!(event = ?event, "solar event due");
+        if let Err(err) = event_sender.send(event.clone()).await {
+            tracing::debug!(event = ?event, error = chain(&err), "cannot deliver solar event");
+        }
+    }
+}
+
+/// How many days ahead [`next_event_time`] looks for a solar event.
 const MAX_SOLAR_SEARCH_DAYS: usize = 400;
 
 fn offset_millis(offset: &Duration) -> i64 {
@@ -267,34 +278,68 @@ fn next_event_time(
     None
 }
 
-fn calculate_next_event(
-    triggers: &'_ HashMap<ConfigItemHash, Vec<SolarEventTrigger>>,
+/// Schedules solar triggers against a watermark: every trigger whose occurrence lies after the
+/// last processed instant and at or before `now` fires exactly once, so neither simultaneous
+/// triggers nor an interrupted sleep can skip an occurrence.
+#[derive(Debug)]
+struct SolarScheduler<K> {
+    triggers: HashMap<K, Vec<SolarEvent>>,
+    processed_up_to: DateTime<Utc>,
     latitude: f64,
     longitude: f64,
     height: f64,
-) -> Option<(&'_ SolarEventTrigger, Duration)> {
-    let now = Utc::now();
+}
 
-    // Iterate through all triggers and calculate the next valid event
-    let mut next_events = triggers
-        .values()
-        .flat_map(|rule_triggers| rule_triggers.iter())
-        .filter_map(|trigger| {
-            next_event_time(&trigger.event, now, latitude, longitude, height).map(|time| (trigger, time))
-        })
-        .collect::<Vec<_>>();
+impl<K: Eq + Hash> SolarScheduler<K> {
+    fn new(latitude: f64, longitude: f64, height: f64, start: DateTime<Utc>) -> Self {
+        Self {
+            triggers: HashMap::new(),
+            processed_up_to: start,
+            latitude,
+            longitude,
+            height,
+        }
+    }
 
-    // Find the next event (closest future event)
-    next_events.sort_by_key(|(_, time)| *time);
+    fn add(&mut self, rule: K, event: SolarEvent) {
+        self.triggers.entry(rule).or_default().push(event);
+    }
 
-    // Map to the first event with a valid delay
-    next_events
-        .into_iter()
-        .filter_map(|(trigger, time)| {
-            let delay = (time - now).to_std().ok()?;
-            Some((trigger, delay))
-        })
-        .next()
+    fn remove_by_rule(&mut self, rule: &K) {
+        self.triggers.remove(rule);
+    }
+
+    /// The configured location is the 0,0,0 default.
+    fn location_unset(&self) -> bool {
+        self.latitude == 0.0 && self.longitude == 0.0 && self.height == 0.0
+    }
+
+    fn events(&self) -> impl Iterator<Item = &SolarEvent> {
+        self.triggers.values().flatten()
+    }
+
+    fn next_time(&self, event: &SolarEvent) -> Option<DateTime<Utc>> {
+        next_event_time(event, self.processed_up_to, self.latitude, self.longitude, self.height)
+    }
+
+    /// Earliest occurrence that has not been processed yet.
+    fn next_due(&self) -> Option<DateTime<Utc>> {
+        self.events().filter_map(|event| self.next_time(event)).min()
+    }
+
+    /// Returns every trigger due up to `now` and marks that span as processed.
+    fn take_due(&mut self, now: DateTime<Utc>) -> Vec<SolarEvent> {
+        if now <= self.processed_up_to {
+            return Vec::new();
+        }
+        let due = self
+            .events()
+            .filter(|event| self.next_time(event).is_some_and(|time| time <= now))
+            .cloned()
+            .collect();
+        self.processed_up_to = now;
+        due
+    }
 }
 
 #[cfg(test)]
@@ -304,6 +349,59 @@ mod tests {
     // Munich
     const LATITUDE: f64 = 48.166;
     const LONGITUDE: f64 = 11.5683;
+
+    fn sunset_after(t: DateTime<Utc>) -> DateTime<Utc> {
+        next_event_time(&SolarEvent::At(SolarPhase::Sunset), t, LATITUDE, LONGITUDE, 519.0).unwrap()
+    }
+
+    fn scheduler(start: DateTime<Utc>) -> SolarScheduler<u64> {
+        SolarScheduler::new(LATITUDE, LONGITUDE, 519.0, start)
+    }
+
+    #[test]
+    fn triggers_due_in_the_same_second_all_fire() {
+        let sunset = sunset_after(Utc::now());
+        let mut sched = scheduler(sunset - chrono::Duration::seconds(10));
+        sched.add(1, SolarEvent::At(SolarPhase::Sunset));
+        sched.add(2, SolarEvent::After(SolarPhase::Sunset, Duration::from_millis(500)));
+
+        let due = sched.take_due(sunset + chrono::Duration::seconds(1));
+
+        assert_eq!(due.len(), 2, "{due:?}");
+        assert!(sched.take_due(sunset + chrono::Duration::seconds(2)).is_empty(), "fired twice");
+        assert!(sched.next_due().unwrap() > sunset + chrono::Duration::hours(12));
+    }
+
+    #[test]
+    fn update_just_before_due_time_does_not_skip_the_trigger() {
+        let sunset = sunset_after(Utc::now());
+        let mut sched = scheduler(sunset - chrono::Duration::seconds(10));
+        sched.add(1, SolarEvent::At(SolarPhase::Sunset));
+        assert_eq!(sched.next_due(), Some(sunset));
+
+        // an update arrives 100 ms before sunset and interrupts the sleep
+        assert!(sched.take_due(sunset - chrono::Duration::milliseconds(100)).is_empty());
+        sched.add(2, SolarEvent::At(SolarPhase::Dusk));
+
+        let due = sched.take_due(sunset + chrono::Duration::milliseconds(5));
+        assert!(matches!(&due[..], [SolarEvent::At(SolarPhase::Sunset)]), "{due:?}");
+    }
+
+    #[test]
+    fn removed_triggers_do_not_fire() {
+        let sunset = sunset_after(Utc::now());
+        let mut sched = scheduler(sunset - chrono::Duration::seconds(10));
+        sched.add(1, SolarEvent::At(SolarPhase::Sunset));
+        sched.remove_by_rule(&1);
+        assert!(sched.take_due(sunset + chrono::Duration::seconds(1)).is_empty());
+        assert_eq!(sched.next_due(), None);
+    }
+
+    #[test]
+    fn default_location_is_reported_unset() {
+        assert!(SolarScheduler::<u64>::new(0.0, 0.0, 0.0, Utc::now()).location_unset());
+        assert!(!scheduler(Utc::now()).location_unset());
+    }
 
     #[test]
     fn next_sunset_is_within_a_day() {

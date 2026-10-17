@@ -157,9 +157,28 @@ impl MqttConnection {
         }
     }
 
-    /// Logs a client task that ended outside of a shutdown; the connection is not retried.
-    pub(crate) fn stopped(self) {
-        tracing::error!(connection = self.name(), "MQTT client stopped");
+    /// Reacts to a client task that ended. The connection is not retried, so outside of a shutdown
+    /// the controller must not keep running without it: returns the exit event that starts a
+    /// clean shutdown, after which the process exits non-zero.
+    pub(crate) fn stopped(self, shutting_down: bool) -> Option<AppEvent> {
+        if shutting_down {
+            tracing::debug!(connection = self.name(), "MQTT client stopped");
+            return None;
+        }
+        tracing::error!(connection = self.name(), "MQTT client stopped unexpectedly, shutting down");
+        Some(AppEvent::Exit)
+    }
+
+    /// Handles a client stop event: requests the shutdown and records the failure.
+    pub(crate) async fn handle_stop(self, state: &mut AppState) {
+        if let Some(exit) = self.stopped(state.should_exit) {
+            state
+                .exit_error
+                .get_or_insert_with(|| format!("{} MQTT client stopped", self.name()));
+            if state.app_event_sender.send(exit).await.is_err() {
+                tracing::debug!("cannot request shutdown; app event channel closed");
+            }
+        }
     }
 }
 
@@ -204,5 +223,26 @@ fn event_source(event: &Event) -> &'static str {
         Event::SolarEvent(_) => "solar",
         Event::Timeout => "timeout",
         Event::None => "empty",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_stop_outside_shutdown_requests_exit() {
+        for conn in [
+            MqttConnection::Discovery,
+            MqttConnection::VirtualDevices,
+            MqttConnection::Mqtt,
+        ] {
+            assert!(matches!(conn.stopped(false), Some(AppEvent::Exit)));
+        }
+    }
+
+    #[test]
+    fn client_stop_during_shutdown_is_expected() {
+        assert!(MqttConnection::Discovery.stopped(true).is_none());
     }
 }

@@ -1,5 +1,6 @@
 mod aggregate_members;
 mod compound_member;
+mod debouncer;
 mod group_materializer;
 mod model;
 mod property_indexer;

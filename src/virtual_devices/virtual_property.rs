@@ -4,13 +4,14 @@ use crate::{
     virtual_devices::{
         aggregate_members::update_compound_value,
         compound_member::{MqttCompoundMember, PropertyCompoundMember},
+        debouncer::MaxWaitDebouncer,
     },
 };
 use color_eyre::eyre::{self, Result};
 use hc_homie5::client::HomieMQTTClient;
 use hc_homie5::logging::{truncate, PAYLOAD_MAX};
 use hc_homie5::store::DeviceStore;
-use hc_homie5::util::{DebouncedSender, DelayedSender, UniqueByExt};
+use hc_homie5::util::{DelayedSender, UniqueByExt};
 use hc_homie5::value::MappingResult;
 
 use homie5::{
@@ -26,6 +27,37 @@ use super::{
     CompoundSpec, MemberSpec, VirtualPropertyConfig, VirtualPropertyOptions,
 };
 
+const DEFAULT_AGGREGATION_DEBOUNCE: Duration = Duration::from_millis(200);
+const DEFAULT_AGGREGATION_MAX_WAIT: Duration = Duration::from_secs(1);
+
+/// How a compound property schedules the recalculation of its value.
+#[derive(Debug)]
+enum RecalcTrigger {
+    /// Not a compound property.
+    None,
+    Debounced(MaxWaitDebouncer<AppEvent>),
+    /// Event (non-retained) properties without a configured debounce: member events recalculate
+    /// inline so presses are never merged, other changes go through the event loop.
+    Immediate(mpsc::Sender<AppEvent>),
+}
+
+impl RecalcTrigger {
+    fn for_compound(compound_spec: &CompoundSpec, retained: bool, app_event_sender: mpsc::Sender<AppEvent>) -> Self {
+        let debounce = match compound_spec.aggregation_debounce {
+            Some(debounce) => debounce,
+            None if retained => DEFAULT_AGGREGATION_DEBOUNCE,
+            None => return Self::Immediate(app_event_sender),
+        };
+        Self::Debounced(MaxWaitDebouncer::new(
+            debounce,
+            compound_spec
+                .aggregation_max_wait
+                .unwrap_or(DEFAULT_AGGREGATION_MAX_WAIT),
+            app_event_sender,
+        ))
+    }
+}
+
 #[derive(Debug)]
 pub struct VirtualProperty {
     pub prop_ref: PropertyRef,
@@ -39,9 +71,12 @@ pub struct VirtualProperty {
     prop_compound_members: PropertyCompoundMembers,
     mqtt_compound_members: MqttCompoundMembers,
     query_compound_members: Vec<QueryCompoundMember>,
-    debouncer: Option<DebouncedSender<AppEvent>>,
+    recalc: RecalcTrigger,
     has_queries: bool,
     read_handle: DelayedSender,
+    /// A member event arrived since the last recalculation. Non-retained properties are events:
+    /// each member event publishes, even when the value repeats.
+    event_pending: bool,
 }
 
 impl VirtualProperty {
@@ -63,12 +98,20 @@ impl VirtualProperty {
         let mut query_compound_members = Vec::new();
         let mut value = None;
         let mut has_queries = false;
-        let mut debouncer = None;
+        let mut recalc = RecalcTrigger::None;
         if let Some(compound_spec) = &spec.compound_spec {
-            debouncer = Some(DebouncedSender::new(
-                compound_spec.aggregation_debounce.unwrap_or(Duration::from_millis(200)),
-                app_event_sender.clone(),
-            ));
+            recalc = RecalcTrigger::for_compound(compound_spec, retained, app_event_sender.clone());
+            let aggregate_function = compound_spec.aggregate_function.unwrap_or_default();
+            if !aggregate_function.fits(datatype) {
+                tracing::warn!(
+                    vdevice = %prop_ref.device_id(),
+                    node = %prop_ref.node_id(),
+                    property = %prop_ref.prop_id(),
+                    aggregate_function = ?aggregate_function,
+                    datatype = %datatype,
+                    "aggregate function does not fit the property datatype, value stays empty"
+                );
+            }
 
             for member_spec in &compound_spec.members {
                 match member_spec {
@@ -95,8 +138,12 @@ impl VirtualProperty {
                             input: input.clone(),
                             output: output.clone(),
                         };
-                        mqtt_client.subscribe(&topic, rumqttc::QoS::ExactlyOnce).await?;
-                        mqtt_compound_members.insert(topic.clone(), m);
+                        // one subscription per member entry, so release_mqtt_members balances it
+                        if mqtt_compound_members.insert(topic.clone(), m).is_none() {
+                            mqtt_client
+                                .subscribe(&topic, HomieMQTTClient::map_qos(&input.qos))
+                                .await?;
+                        }
                     }
                     MemberSpec::QueryMember { query, mapping } => {
                         query_compound_members.push(QueryCompoundMember::new(
@@ -173,8 +220,9 @@ impl VirtualProperty {
             mqtt_compound_members,
             query_compound_members,
             has_queries,
-            debouncer,
+            recalc,
             read_handle,
+            event_pending: false,
         })
     }
 
@@ -276,8 +324,22 @@ impl VirtualProperty {
         Ok(())
     }
 
+    /// Publishes the cached value during device publish or republish. Non-retained properties are
+    /// events, so their last value is never replayed.
+    pub async fn republish_value(
+        &self,
+        homie_client: &HomieMQTTClient,
+        homie_proto: &Homie5DeviceProtocol,
+    ) -> Result<()> {
+        if !self.retained {
+            return Ok(());
+        }
+        self.publish_value(homie_client, homie_proto).await
+    }
+
     // Called when one of the compound member properties has published a new value.
-    // Will store the new value and trigger a (debounced) recalulation of the property value
+    // Will store the new value and trigger a (debounced) recalulation of the property value.
+    // Returns true when the caller must recalculate the value right away.
     pub async fn update_member_value_prop(
         &mut self,
         prop: &PropertyRef,
@@ -285,7 +347,7 @@ impl VirtualProperty {
         // devices: &DeviceStore,
         // homie_client: &HomieMQTTClient,
         // homie_proto: &Homie5DeviceProtocol,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut changed = false;
         if let Some(pcm) = self.prop_compound_members.get_mut(prop) {
             pcm.update_value(self.compound_spec.as_ref().and_then(|cs| cs.mapping.as_ref()), value);
@@ -299,17 +361,33 @@ impl VirtualProperty {
             }
         }
         if changed {
-            // self.update_value(devices, homie_client, homie_proto).await?;
-            self.trigger_value_recalculation().await;
+            self.event_pending = true;
+            return Ok(self.member_value_recalculation().await);
         }
-        Ok(())
+        Ok(false)
+    }
+
+    // Recalculation after a member event. Returns true when it must happen inline.
+    async fn member_value_recalculation(&self) -> bool {
+        match &self.recalc {
+            RecalcTrigger::Immediate(_) => true,
+            _ => {
+                self.trigger_value_recalculation().await;
+                false
+            }
+        }
     }
 
     async fn trigger_value_recalculation(&self) {
-        if let Some(debouncer) = &self.debouncer {
-            debouncer
-                .send(AppEvent::RecalculateVirtualPropertyValue(self.prop_ref.clone()))
-                .await;
+        let event = AppEvent::RecalculateVirtualPropertyValue(self.prop_ref.clone());
+        match &self.recalc {
+            RecalcTrigger::None => {}
+            RecalcTrigger::Debounced(debouncer) => debouncer.send(event).await,
+            RecalcTrigger::Immediate(sender) => {
+                if sender.send(event).await.is_err() {
+                    tracing::debug!("cannot send recalculation event; receiver closed");
+                }
+            }
         }
     }
 
@@ -331,7 +409,8 @@ impl VirtualProperty {
                 devices,
                 aggr_func,
             );
-            if value != self.value {
+            let is_event = !self.retained && std::mem::take(&mut self.event_pending);
+            if is_event || value != self.value {
                 self.value = value;
                 tracing::trace!(
                     vdevice = %self.prop_ref.device_id(),
@@ -354,7 +433,7 @@ impl VirtualProperty {
         homie_client: &HomieMQTTClient,
         homie_proto: &Homie5DeviceProtocol,
     ) -> Result<(), eyre::Error> {
-        if Some(&value) != self.value.as_ref() {
+        if !self.retained || Some(&value) != self.value.as_ref() {
             self.value = Some(value);
             tracing::trace!(
                 vdevice = %self.prop_ref.device_id(),
@@ -368,24 +447,18 @@ impl VirtualProperty {
         Ok(())
     }
 
-    pub async fn update_member_value_mqtt(
-        &mut self,
-        topic: &str,
-        value: &str,
-        // devices: &DeviceStore,
-        // homie_client: &HomieMQTTClient,
-        // homie_proto: &Homie5DeviceProtocol,
-    ) -> Result<()> {
+    // Returns true when the caller must recalculate the value right away.
+    pub async fn update_member_value_mqtt(&mut self, topic: &str, value: &str) -> Result<bool> {
         if let Some(mcm) = self.mqtt_compound_members.get_mut(topic) {
             if let MappingResult::Mapped(value) =
                 map_value_list(Some(&String::from(value)), Some(&mcm.input.mapping), None)
             {
                 mcm.value = value;
-                // self.update_value(devices, homie_client, homie_proto).await?;
-                self.trigger_value_recalculation().await;
+                self.event_pending = true;
+                return Ok(self.member_value_recalculation().await);
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     // returns a list (distinct by propref) of all compound members
@@ -404,7 +477,7 @@ impl VirtualProperty {
         homie_proto: &Homie5DeviceProtocol,
     ) -> Result<()> {
         let ctrl_proto = Homie5ControllerProtocol::new();
-        if self.pass_through && self.value.as_ref() != Some(&value) {
+        if self.pass_through && (!self.retained || self.value.as_ref() != Some(&value)) {
             self.value = Some(value.clone());
             self.publish_value(homie_client, homie_proto).await?;
             tracing::info!(
@@ -526,10 +599,314 @@ impl VirtualProperty {
         Ok(())
     }
 
+    /// Releases the MQTT subscriptions of all MQTT compound members.
+    pub async fn release_mqtt_members(&self, mqtt_client: &ManagedMqttClient) -> Result<()> {
+        for topic in self.mqtt_compound_members.keys() {
+            mqtt_client.unsubscribe(topic).await?;
+        }
+        Ok(())
+    }
+
     pub fn has_queries(&self) -> bool {
         self.has_queries
     }
     pub fn wait_for_mqtt_read(&self) -> bool {
         !self.read_handle.is_finished()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::virtual_devices::model::MqttWrapperChannel;
+    use hc_homie5::client::PendingPublishTracker;
+    use hc_homie5::value::{ValueMapping, ValueMappingList};
+    use homie5::HomieDomain;
+
+    const TOPIC: &str = "external/button";
+
+    struct TestClient {
+        client: HomieMQTTClient,
+        observer: hc_homie5::client::PendingPublishObserver,
+        // keeps the request channel open so publishes can be queued
+        _eventloop: rumqttc::EventLoop,
+    }
+
+    impl TestClient {
+        fn new() -> Self {
+            let (client, eventloop) =
+                rumqttc::AsyncClient::new(rumqttc::MqttOptions::new("test", "localhost", 1883), 64);
+            let (tracker, observer) = PendingPublishTracker::new();
+            Self {
+                client: HomieMQTTClient::new(client, tracker.queued_counter()),
+                observer,
+                _eventloop: eventloop,
+            }
+        }
+
+        fn published(&self) -> usize {
+            self.observer.pending_count()
+        }
+    }
+
+    fn proto() -> Homie5DeviceProtocol {
+        Homie5DeviceProtocol::new("vdev".try_into().unwrap(), HomieDomain::Default).0
+    }
+
+    fn vprop(retained: bool) -> VirtualProperty {
+        let mut mqtt_compound_members = HashMap::new();
+        mqtt_compound_members.insert(
+            TOPIC.to_string(),
+            MqttCompoundMember {
+                value: None,
+                input: MqttWrapperChannel {
+                    topic: TOPIC.to_string(),
+                    mapping: ValueMappingList(vec![ValueMapping {
+                        from: None,
+                        to: HomieValue::Enum("press-end".to_string()),
+                    }]),
+                    retained: false,
+                    qos: Default::default(),
+                },
+                output: None,
+            },
+        );
+        VirtualProperty {
+            prop_ref: PropertyRef::new(
+                HomieDomain::Default,
+                "vdev".try_into().unwrap(),
+                "button".try_into().unwrap(),
+                "action".try_into().unwrap(),
+            ),
+            value: None,
+            retained,
+            datatype: HomieDataType::Enum,
+            options: Default::default(),
+            pass_through: false,
+            compound_spec: Some(CompoundSpec::default()),
+            prop_compound_members: HashMap::new(),
+            mqtt_compound_members,
+            query_compound_members: Vec::new(),
+            recalc: RecalcTrigger::None,
+            has_queries: false,
+            read_handle: Default::default(),
+            event_pending: false,
+        }
+    }
+
+    async fn member_event(prop: &mut VirtualProperty, client: &TestClient) {
+        prop.update_member_value_mqtt(TOPIC, "single").await.unwrap();
+        prop.recalculate_value(&DeviceStore::new(), &client.client, &proto())
+            .await
+            .unwrap();
+    }
+
+    fn compound(debounce: Option<Duration>) -> CompoundSpec {
+        CompoundSpec {
+            aggregation_debounce: debounce,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn non_retained_compound_without_debounce_recalculates_immediately() {
+        let (tx, _rx) = mpsc::channel(10);
+        assert!(matches!(RecalcTrigger::for_compound(&compound(None), false, tx.clone()), RecalcTrigger::Immediate(_)));
+        assert!(matches!(RecalcTrigger::for_compound(&compound(None), true, tx.clone()), RecalcTrigger::Debounced(_)));
+        assert!(matches!(
+            RecalcTrigger::for_compound(&compound(Some(Duration::from_millis(50))), false, tx),
+            RecalcTrigger::Debounced(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn member_event_on_immediate_property_requests_inline_recalculation() {
+        let (tx, mut rx) = mpsc::channel(10);
+        let mut prop = vprop(false);
+        prop.recalc = RecalcTrigger::for_compound(&compound(None), false, tx);
+
+        assert!(prop.update_member_value_mqtt(TOPIC, "single").await.unwrap());
+        assert!(rx.try_recv().is_err(), "member events must not be queued");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn member_event_on_retained_property_is_debounced() {
+        let (tx, mut rx) = mpsc::channel(10);
+        let mut prop = vprop(true);
+        prop.recalc = RecalcTrigger::for_compound(&compound(None), true, tx);
+
+        assert!(!prop.update_member_value_mqtt(TOPIC, "single").await.unwrap());
+        tokio::time::sleep(Duration::from_millis(199)).await;
+        assert!(rx.try_recv().is_err());
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(matches!(rx.try_recv(), Ok(AppEvent::RecalculateVirtualPropertyValue(_))));
+    }
+
+    async fn mqtt_member_property(mqtt_client: &ManagedMqttClient, homie_client: &HomieMQTTClient) -> VirtualProperty {
+        let compound_spec: CompoundSpec = serde_yaml_ng::from_str(&format!(
+            "members:\n  - mqtt_input: {{ topic: {TOPIC}, mapping: [], qos: AtMostOnce }}\n"
+        ))
+        .unwrap();
+        let (tx, _rx) = mpsc::channel(10);
+        VirtualProperty::new(
+            vprop(false).prop_ref,
+            VirtualPropertyConfig {
+                compound_spec: Some(compound_spec),
+                ..Default::default()
+            },
+            None,
+            None,
+            false,
+            HomieDataType::Enum,
+            &DeviceStore::new(),
+            mqtt_client,
+            homie_client,
+            tx,
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn mqtt_member_subscribes_with_configured_qos() {
+        let (mqtt_client, _eventloop) = ManagedMqttClient::offline();
+        let client = TestClient::new();
+        let _prop = mqtt_member_property(&mqtt_client, &client.client).await;
+
+        assert_eq!(mqtt_client.subscription(TOPIC).await, Some((rumqttc::QoS::AtMostOnce, 1)));
+    }
+
+    #[tokio::test]
+    async fn reloading_mqtt_member_does_not_leak_subscriptions() {
+        let (mqtt_client, _eventloop) = ManagedMqttClient::offline();
+        let client = TestClient::new();
+        for _ in 0..10 {
+            let prop = mqtt_member_property(&mqtt_client, &client.client).await;
+            prop.release_mqtt_members(&mqtt_client).await.unwrap();
+        }
+        let _prop = mqtt_member_property(&mqtt_client, &client.client).await;
+
+        assert_eq!(mqtt_client.subscription(TOPIC).await.map(|(_, count)| count), Some(1));
+    }
+
+    #[tokio::test]
+    async fn republish_skips_cached_value_of_non_retained_property() {
+        let client = TestClient::new();
+        let mut prop = vprop(false);
+        prop.value = Some(HomieValue::Enum("press-end".to_string()));
+
+        prop.republish_value(&client.client, &proto()).await.unwrap();
+
+        assert_eq!(client.published(), 0);
+    }
+
+    #[tokio::test]
+    async fn republish_publishes_value_of_retained_property() {
+        let client = TestClient::new();
+        let mut prop = vprop(true);
+        prop.value = Some(HomieValue::Enum("press-end".to_string()));
+
+        prop.republish_value(&client.client, &proto()).await.unwrap();
+
+        assert_eq!(client.published(), 1);
+    }
+
+    #[tokio::test]
+    async fn identical_member_events_on_non_retained_property_publish_each_time() {
+        let client = TestClient::new();
+        let mut prop = vprop(false);
+
+        member_event(&mut prop, &client).await;
+        member_event(&mut prop, &client).await;
+
+        assert_eq!(client.published(), 2);
+    }
+
+    #[tokio::test]
+    async fn identical_member_updates_on_retained_property_publish_once() {
+        let client = TestClient::new();
+        let mut prop = vprop(true);
+
+        member_event(&mut prop, &client).await;
+        member_event(&mut prop, &client).await;
+
+        assert_eq!(client.published(), 1);
+    }
+
+    #[tokio::test]
+    async fn recalculation_without_member_event_does_not_republish_non_retained_value() {
+        let client = TestClient::new();
+        let mut prop = vprop(false);
+
+        member_event(&mut prop, &client).await;
+        // structural recalculation (e.g. query membership change) without a new member event
+        prop.recalculate_value(&DeviceStore::new(), &client.client, &proto())
+            .await
+            .unwrap();
+
+        assert_eq!(client.published(), 1);
+    }
+
+    #[tokio::test]
+    async fn identical_set_values_on_non_retained_property_publish_each_time() {
+        let client = TestClient::new();
+        let mut prop = vprop(false);
+        let value = HomieValue::Enum("press-end".to_string());
+
+        prop.set_value(value.clone(), &client.client, &proto()).await.unwrap();
+        prop.set_value(value, &client.client, &proto()).await.unwrap();
+
+        assert_eq!(client.published(), 2);
+    }
+
+    #[tokio::test]
+    async fn identical_set_values_on_retained_property_publish_once() {
+        let client = TestClient::new();
+        let mut prop = vprop(true);
+        let value = HomieValue::Enum("press-end".to_string());
+
+        prop.set_value(value.clone(), &client.client, &proto()).await.unwrap();
+        prop.set_value(value, &client.client, &proto()).await.unwrap();
+
+        assert_eq!(client.published(), 1);
+    }
+
+    fn pass_through_vprop(retained: bool) -> VirtualProperty {
+        VirtualProperty {
+            pass_through: true,
+            ..vprop(retained)
+        }
+    }
+
+    #[tokio::test]
+    async fn identical_pass_through_sets_on_non_retained_property_publish_each_time() {
+        let (mqtt_client, _eventloop) = ManagedMqttClient::offline();
+        let client = TestClient::new();
+        let mut prop = pass_through_vprop(false);
+        let value = HomieValue::Enum("press".to_string());
+
+        prop.handle_set_command(value.clone(), &client.client, &mqtt_client, &proto())
+            .await
+            .unwrap();
+        prop.handle_set_command(value, &client.client, &mqtt_client, &proto())
+            .await
+            .unwrap();
+
+        assert_eq!(client.published(), 2);
+    }
+
+    #[tokio::test]
+    async fn pass_through_set_to_current_value_on_retained_property_does_not_publish() {
+        let (mqtt_client, _eventloop) = ManagedMqttClient::offline();
+        let client = TestClient::new();
+        let mut prop = pass_through_vprop(true);
+        let value = HomieValue::Enum("press".to_string());
+        prop.value = Some(value.clone());
+
+        prop.handle_set_command(value, &client.client, &mqtt_client, &proto())
+            .await
+            .unwrap();
+
+        assert_eq!(client.published(), 0);
     }
 }

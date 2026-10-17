@@ -16,21 +16,10 @@ use hc_homie5::value::ValueCondition;
 
 use super::{deserialize_duration, WhileConditionSet};
 
-// TODO: `deny_unknown_fields` is silently IGNORED by serde on untagged enums
-// (https://serde.rs/container-attrs.html#deny_unknown_fields — "Not supported
-// in combination with untagged"). Each variant below is matched purely by
-// which fields deserialize successfully; unknown/typo'd fields are dropped
-// without error. Risk: a trigger with a misspelled field (e.g. `trigger_valu`)
-// or an extra field can silently match a DIFFERENT, less specific variant (or
-// fail with serde's unhelpful "data did not match any variant" message)
-// instead of producing a precise error. Suggested fix: post-deserialize
-// validation of the raw YAML mapping keys against the matched variant's
-// expected field set, or a manual `Deserialize` impl that dispatches on a
-// distinguishing key (`trigger_value` vs `changed` vs `timer_id` vs
-// `schedule` vs `topic` vs `sun_phase`(+`min_after`/`min_before`) vs
-// `set_value`) and then uses `deny_unknown_fields` per variant struct. Kept
-// as-is for now per plan `plans/hc-homie5-automation-eval-fixes` (D-5: no
-// behavioral change); the attribute itself is harmless.
+// Variants are matched by which fields deserialize. `deny_unknown_fields` applies to each struct
+// variant, so a trigger with a typo'd or extra field matches no variant instead of a less specific
+// one. Serde then only reports "data did not match any variant"; `parse_rule` adds the rule name
+// and the failing trigger to that error.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RuleTrigger {
@@ -317,9 +306,29 @@ impl<'a> From<&'a SolarEvent> for RuleTriggerEvent<'a> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChangedTrigger {
     #[serde(default)]
     pub from: Option<ValueCondition<HomieValue>>,
     #[serde(default)]
     pub to: Option<ValueCondition<HomieValue>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changed_trigger_rejects_unknown_field() {
+        let err = serde_yaml_ng::from_str::<ChangedTrigger>("too: { operator: matchAlways }\n").unwrap_err();
+        assert!(err.to_string().contains("too"), "{err}");
+    }
+
+    #[test]
+    fn property_changed_trigger_with_typo_in_changed_is_rejected() {
+        let res = serde_yaml_ng::from_str::<RuleTrigger>(
+            "properties: [dev/node/prop]\nchanged:\n  too: { operator: matchAlways }\n",
+        );
+        assert!(res.is_err(), "typo'd changed block must not load: {res:?}");
+    }
 }

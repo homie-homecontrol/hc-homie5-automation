@@ -19,6 +19,61 @@ pub struct Rule {
     pub actions: Vec<RuleAction>,
 }
 
+/// Parses one rule document. On failure the error names the rule and the first trigger that
+/// does not parse, since the untagged trigger enum alone only reports "did not match any variant".
+pub fn parse_rule(doc: &str) -> Result<Rule, serde_yaml_ng::Error> {
+    serde_yaml_ng::from_str(doc).map_err(|err| {
+        let Ok(value) = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(doc) else {
+            return err;
+        };
+        let mut context = match value.get("name").and_then(|name| name.as_str()) {
+            Some(name) => format!("rule \"{name}\""),
+            None => "rule without name".to_string(),
+        };
+        let failing_trigger = value
+            .get("triggers")
+            .and_then(|triggers| triggers.as_sequence())
+            .and_then(|triggers| {
+                triggers
+                    .iter()
+                    .enumerate()
+                    .find(|(_, trigger)| RuleTrigger::deserialize((*trigger).clone()).is_err())
+            });
+        if let Some((i, trigger)) = failing_trigger {
+            let keys: Vec<&str> = trigger
+                .as_mapping()
+                .map(|map| map.keys().filter_map(|key| key.as_str()).collect())
+                .unwrap_or_default();
+            context.push_str(&format!(", trigger {} (keys: {})", i + 1, keys.join(", ")));
+        }
+        serde::de::Error::custom(format!("{context}: {err}"))
+    })
+}
+
+impl Rule {
+    /// Returns problems that let the rule load but keep parts of it from ever working.
+    pub fn validate(&self) -> Vec<String> {
+        self.triggers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, trigger)| match trigger {
+                RuleTrigger::PropertyTriggered {
+                    properties, queries, ..
+                }
+                | RuleTrigger::PropertyChanged {
+                    properties, queries, ..
+                }
+                | RuleTrigger::OnSetEventTrigger {
+                    properties, queries, ..
+                } if properties.is_empty() && queries.is_empty() => {
+                    Some(format!("trigger {} has neither properties nor queries and never fires", i + 1))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 /// Parses a duration string of the form `<integer><unit>`.
 ///
 /// Supported units, checked in the order `ms, s, m, h, d` (so that the `ms`
@@ -183,5 +238,144 @@ mod duration_tests {
         assert_eq!(parse_optional("1h").unwrap(), Some(Duration::from_secs(3600)));
         assert!(parse_optional("1.5s").is_err());
         assert!(parse_optional("fasts").is_err());
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn trigger_error_names_rule_and_trigger() {
+        let doc = "name: kitchen-light\ntriggers:\n  - timer_id: t\n  - properties: [dev/node/prop]\n    chnged: {}\nactions: []\n";
+        let err = parse_rule(doc).unwrap_err().to_string();
+        assert!(err.contains("kitchen-light"), "{err}");
+        assert!(err.contains("trigger 2"), "{err}");
+        assert!(err.contains("chnged"), "{err}");
+    }
+
+    #[test]
+    fn valid_rule_parses() {
+        let rule = parse_rule("name: r\ntriggers:\n  - timer_id: t\nactions: []\n").unwrap();
+        assert_eq!(rule.name, "r");
+    }
+
+    #[test]
+    fn unknown_field_rejects_trigger_variant() {
+        assert!(serde_yaml_ng::from_str::<RuleTrigger>("timer_id: t\n").is_ok());
+        assert!(serde_yaml_ng::from_str::<RuleTrigger>("timer_id: t\nextra: 1\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod validate_tests {
+    use super::*;
+
+    fn rule(trigger: &str) -> Rule {
+        serde_yaml_ng::from_str(&format!("name: r\ntriggers:\n  - {trigger}\nactions:\n  - type: run\n    script: x\n"))
+            .unwrap()
+    }
+
+    #[test]
+    fn warns_on_property_triggers_without_properties_or_queries() {
+        for trigger in [
+            "trigger_value: { operator: matchAlways }",
+            "changed: {}",
+            "set_value: { operator: matchAlways }",
+        ] {
+            let warnings = rule(trigger).validate();
+            assert_eq!(warnings.len(), 1, "{trigger}: {warnings:?}");
+        }
+    }
+
+    #[test]
+    fn no_warning_for_property_trigger_with_properties() {
+        assert!(rule("{ properties: [dev/node/prop], trigger_value: { operator: matchAlways } }")
+            .validate()
+            .is_empty());
+        assert!(rule("{ timer_id: t }").validate().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod doc_example_tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Triggers {
+        #[allow(dead_code)]
+        triggers: Vec<RuleTrigger>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Actions {
+        #[allow(dead_code)]
+        actions: Vec<RuleAction>,
+    }
+
+    #[derive(Deserialize)]
+    struct While {
+        #[allow(dead_code)]
+        r#while: WhileConditionSet,
+    }
+
+    /// Parses a YAML example by its first key. Placeholder templates (`<...>`) and fragments
+    /// that are not a rule, trigger, action or while list are skipped.
+    fn check_example(block: &str) -> Option<Result<(), serde_yaml_ng::Error>> {
+        if block.contains('<') {
+            return None;
+        }
+        let first = block
+            .lines()
+            .map(str::trim_start)
+            .find(|line| !line.is_empty() && !line.starts_with('#'))?;
+        Some(if first.starts_with("name:") {
+            serde_yaml_ng::from_str::<Rule>(block).map(drop)
+        } else if first.starts_with("triggers:") {
+            serde_yaml_ng::from_str::<Triggers>(block).map(drop)
+        } else if first.starts_with("actions:") {
+            serde_yaml_ng::from_str::<Actions>(block).map(drop)
+        } else if first.starts_with("while:") {
+            serde_yaml_ng::from_str::<While>(block).map(drop)
+        } else if first.starts_with("- type:") {
+            serde_yaml_ng::from_str::<Vec<RuleAction>>(block).map(drop)
+        } else if first.starts_with("- ") {
+            serde_yaml_ng::from_str::<Vec<RuleTrigger>>(block).map(drop)
+        } else {
+            return None;
+        })
+    }
+
+    fn yaml_blocks(markdown: &str) -> Vec<(usize, String)> {
+        let mut blocks = Vec::new();
+        let mut current: Option<(usize, String)> = None;
+        for (i, line) in markdown.lines().enumerate() {
+            let trimmed = line.trim_start();
+            match current.as_mut() {
+                None if trimmed.starts_with("```yaml") || trimmed.starts_with("```yml") => {
+                    current = Some((i + 1, String::new()))
+                }
+                Some(_) if trimmed.starts_with("```") => blocks.extend(current.take()),
+                Some((_, block)) => {
+                    block.push_str(line);
+                    block.push('\n');
+                }
+                None => {}
+            }
+        }
+        blocks
+    }
+
+    #[test]
+    fn rules_doc_examples_parse() {
+        let mut failures = Vec::new();
+        for (line, block) in yaml_blocks(include_str!("../../../docs/rules.md")) {
+            if let Some(Err(err)) = check_example(&block) {
+                failures.push(format!("docs/rules.md:{line}: {err}"));
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 }

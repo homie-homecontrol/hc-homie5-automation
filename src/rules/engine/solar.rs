@@ -1,4 +1,4 @@
-use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
+use super::{matching_rules, run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
 use crate::{
     rules::{Rule, RuleTrigger},
     solar_events::{SolarEvent, SolarEventManager, SolarEventTrigger},
@@ -8,13 +8,10 @@ use hc_homie5::logging::chain;
 use hc_homie5::store::DeviceStore;
 
 pub async fn run_solar_rules(event: &SolarEvent, ctx: &RuleContext<'_>) {
-    let devices = &ctx.dm.read().await;
-    for (hash, rule) in ctx.rules.iter().filter(|(_, rule)| {
-        rule.triggers
-            .iter()
-            .any(|trigger| match_solar_event(event, trigger, devices))
-    }) {
-        run_rule_actions(*hash, rule, event.into(), ctx).await;
+    let matching =
+        matching_rules(ctx.rules, &*ctx.dm.read().await, |trigger, devices| match_solar_event(event, trigger, devices));
+    for (hash, rule) in matching {
+        run_rule_actions(hash, rule, event.into(), ctx).await;
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{fs, iter, time::Duration};
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, WrapErr};
 use hc_homie5_automation::{
     app_state::{AppEvent, AppState, ConnectionState},
     lua_runtime::LuaModuleManager,
@@ -14,7 +14,9 @@ use tokio::sync::mpsc::{self};
 
 use crate::eventloop::EventMultiPlexer;
 
-use crate::settings::{ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
+use crate::settings::{
+    config_backend_client_config, mqtt_client_config, ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS,
+};
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::client::HomieClientHandle;
 use hc_homie5::logging::{truncate, Outage, PAYLOAD_MAX};
@@ -23,7 +25,7 @@ use hc_homie5_automation::{
     device_manager::DeviceManager,
     mqtt_client::{run_mqtt_client, MqttClientHandle},
     rule_manager::RuleManager,
-    rules::Rule,
+    rules::{parse_rule, Rule},
     solar_events::{run_solar_event_task, SolarEventHandle},
     timer_manager::TimerManager,
     virtual_devices::{VirtualDeviceManager, VirtualDeviceSpec},
@@ -72,10 +74,7 @@ fn run_config_backend(
             backend::run_configmap_watcher(name.to_string(), namespace.to_string())
         }
         ConfigBackend::Mqtt { topic } => {
-            let mco = settings
-                .homie
-                .to_mqtt_client_config()
-                .client_id(format!("{}{}", &settings.homie.client_id, client_id_suffix));
+            let mco = config_backend_client_config(&settings.homie, client_id_suffix);
             backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
         }
     }
@@ -100,6 +99,7 @@ pub async fn initialize_app(
         lua_script_timeout_ms = settings.app.lua_script_timeout.as_millis() as u64,
         lua_memory_limit_mb = settings.app.lua_memory_limit / (1024 * 1024),
         controller_children_debounce_ms = settings.app.controller_children_debounce.as_millis() as u64,
+        rule_max_firings_per_sec = settings.app.rule_max_firings_per_sec,
         "configuration loaded"
     );
 
@@ -107,7 +107,7 @@ pub async fn initialize_app(
 
     let (app_event_sender, app_event_receiver) = mpsc::channel::<AppEvent>(CHANNEL_CAPACITY);
 
-    let homie_client_options = settings.homie.to_mqtt_client_config();
+    let homie_client_options = mqtt_client_config(&settings.homie);
 
     // Setup device discovery
     // =====================================================
@@ -117,10 +117,8 @@ pub async fn initialize_app(
     // Setup MQTT Client
     // ===============================================
 
-    let mqtt_client_options = settings
-        .homie
-        .to_mqtt_client_config()
-        .client_id(format!("{}-mqtt", &settings.homie.client_id));
+    let mqtt_client_options =
+        mqtt_client_config(&settings.homie).client_id(format!("{}-mqtt", &settings.homie.client_id));
 
     let (mqtt_client_handle, mqtt_client, mqtt_event_receiver) =
         run_mqtt_client(mqtt_client_options.to_mqtt_options()?, CHANNEL_CAPACITY)?;
@@ -147,7 +145,10 @@ pub async fn initialize_app(
     // Setup configuration watchers
     // =====================================================
 
-    let deserialize_rules = |doc: &str| parse_document::<Rule>(doc);
+    let deserialize_rules = |doc: &str| {
+        contain_sync(|| parse_rule(doc))
+            .unwrap_or_else(|panic| Err(<serde_yaml_ng::Error as serde::de::Error>::custom(panic)))
+    };
 
     let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
         || run_config_backend(settings, &settings.app.rules_config, "Rules", "rules", "*.yaml", "-cfg-r"),
@@ -215,7 +216,11 @@ pub async fn initialize_app(
             namespace,
             resource_type,
         } => KeyValueStore::Kubernetes(KubernetesStore::new(namespace, name, *resource_type).await?),
-        ValueStoreConfig::Sqlite { path } => KeyValueStore::SQLite(SQLiteStore::new(path).await),
+        ValueStoreConfig::Sqlite { path } => KeyValueStore::SQLite(
+            SQLiteStore::new(path)
+                .await
+                .wrap_err_with(|| format!("cannot open SQLite value store {path}"))?,
+        ),
     };
 
     // Setup EventMultiPlexer
@@ -244,7 +249,7 @@ pub async fn initialize_app(
         solar_event_handler,
         AppState {
             dm,
-            rules: RuleManager::new(),
+            rules: RuleManager::with_max_firings_per_sec(settings.app.rule_max_firings_per_sec),
             vdm,
             timers,
             solar_events,
@@ -252,6 +257,7 @@ pub async fn initialize_app(
             mqtt_client: mqtt_client.clone(),
             app_event_sender,
             should_exit: false,
+            exit_error: None,
             mqtt_state: ConnectionState::Init,
             discovery_state: ConnectionState::Init,
             virtual_devices_state: ConnectionState::Init,

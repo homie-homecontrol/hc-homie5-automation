@@ -20,13 +20,14 @@ pub enum WhileCondition {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PropertyWhileCondition {
     pub property: PropertyRef,
     pub condition: ValueCondition<HomieValue>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)] // Deserialize based on field structure, without a "type" tag
+#[serde(untagged, deny_unknown_fields)] // Deserialize based on field structure, without a "type" tag
 pub enum TimeWhileCondition {
     // `after` and `before` are required; `weekdays` is optional
     Standard {
@@ -144,6 +145,35 @@ mod tests {
 
     fn t(h: u32, m: u32) -> NaiveTime {
         NaiveTime::from_hms_opt(h, m, 0).unwrap()
+    }
+
+    #[test]
+    fn property_while_condition_rejects_unknown_field() {
+        let res = serde_yaml_ng::from_str::<PropertyWhileCondition>(
+            "property: dev/node/prop\ncondition: { operator: matchAlways }\nextra: 1\n",
+        );
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    #[test]
+    fn time_while_condition_rejects_unknown_field() {
+        // used to load as `After`, silently dropping the typo'd `befor`
+        let res = serde_yaml_ng::from_str::<TimeWhileCondition>("after: 08:00:00\nbefor: 17:00:00\n");
+        assert!(res.is_err(), "{res:?}");
+        let res = serde_yaml_ng::from_str::<TimeWhileCondition>("weekdays: [mon]\nextra: 1\n");
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    #[test]
+    fn time_while_condition_variants_still_parse() {
+        for yaml in [
+            "after: 08:00:00\nbefore: 17:00:00\nweekdays: [mon]\n",
+            "before: 17:00:00\nweekdays: [mon]\n",
+            "after: 08:00:00\n",
+            "weekdays: [mon, tue]\n",
+        ] {
+            serde_yaml_ng::from_str::<TimeWhileCondition>(yaml).unwrap_or_else(|e| panic!("{yaml}: {e}"));
+        }
     }
 
     #[test]

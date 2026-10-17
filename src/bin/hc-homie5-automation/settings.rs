@@ -4,9 +4,10 @@ use once_cell::sync::Lazy;
 use simple_kv_store::KubernetesResource;
 use std::{fmt, path::PathBuf, str::FromStr, time::Duration};
 
+use hc_homie5::client::MqttClientConfig;
 use hc_homie5::settings::{self, HomieSettings};
 use hc_homie5_automation::lua_runtime::DEFAULT_LUA_MEMORY_LIMIT;
-use hc_homie5_automation::rules::parse_duration;
+use hc_homie5_automation::rules::{parse_duration, DEFAULT_MAX_FIRINGS_PER_SEC};
 use hc_homie5_automation::virtual_devices::VirtualDeviceManagerConfig;
 
 // pub static ENV_PREFIX: Lazy<String> = Lazy::new(|| env!("CARGO_CRATE_NAME").replace('-', "_").to_uppercase());
@@ -16,9 +17,10 @@ pub static SETTINGS: Lazy<Settings> = Lazy::new(Settings::default);
 
 // Large enough for normal bursts, small enough to expose backpressure instead of hiding stalls.
 pub const CHANNEL_CAPACITY: usize = 1024;
-/// Keepalive for the virtual-device Homie MQTT client. A longer interval gives
-/// large QoS>0 publish bursts more time to drain before rumqttc's collision
-/// watchdog trips.
+/// Keepalive for the discovery, generic and virtual-device MQTT clients. A
+/// longer interval gives large QoS>0 publish bursts more time to drain before
+/// rumqttc's collision watchdog trips, and tolerates Lua scripts that block the
+/// current-thread runtime up to their budget.
 pub const KEEP_ALIVE_SECS: u64 = 30;
 /// Raised inflight window for the virtual-device Homie MQTT client. This
 /// matches the bridge crates and avoids rumqttc packet-id collisions during
@@ -58,6 +60,10 @@ pub struct AppSettings {
     /// once per quiet period. `0` disables debouncing (publish immediately).
     /// Default: 200ms.
     pub controller_children_debounce: Duration,
+    /// Maximum firings per second of a single rule; further firings within the second are
+    /// skipped with one warning. Guards against rules that trigger themselves. `0` disables it.
+    /// Default: 20.
+    pub rule_max_firings_per_sec: u32,
 }
 
 /// Newtype so a duration string setting (e.g. `5s`, `500ms`) can be parsed
@@ -68,6 +74,22 @@ pub struct DurationSetting(pub Duration);
 /// Size setting given in whole mebibytes (e.g. `64`), stored in bytes.
 #[derive(Debug, Clone, Copy)]
 pub struct MebibytesSetting(pub usize);
+
+/// Non-negative count setting (e.g. `20`).
+#[derive(Debug, Clone, Copy)]
+pub struct CountSetting(pub u32);
+
+impl TryFrom<String> for CountSetting {
+    type Error = eyre::Report;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value
+            .trim()
+            .parse()
+            .map(CountSetting)
+            .map_err(|err| eyre!("invalid count [{}]: {}", value, err))
+    }
+}
 
 impl TryFrom<String> for MebibytesSetting {
     type Error = eyre::Report;
@@ -172,6 +194,12 @@ impl TryFrom<String> for ValueStoreConfig {
     type Error = eyre::Report;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
+        let invalid = || {
+            eyre!(
+                "invalid value store config [{}]: use 'inmemory', 'sqlite:/path/to/filename.db' or 'kubernetes:secret|configmap,name[,namespace]'",
+                s
+            )
+        };
         let parts: Vec<&str> = s.splitn(2, ':').collect();
 
         match parts[0].to_lowercase().as_str() {
@@ -185,13 +213,15 @@ impl TryFrom<String> for ValueStoreConfig {
                 let resource_type = match kube_parts[0] {
                     "secret" => KubernetesResource::Secret,
                     "configmap" => KubernetesResource::ConfigMap,
-                    _ => KubernetesResource::ConfigMap,
+                    _ => return Err(invalid()),
                 };
-                let name = kube_parts[1].to_string();
-                let namespace = if kube_parts.len() == 3 {
-                    kube_parts[2].to_string()
-                } else {
-                    "default".to_string() // Use "default" if namespace is missing
+                let name = match kube_parts.get(1) {
+                    Some(name) if !name.is_empty() => name.to_string(),
+                    _ => return Err(invalid()),
+                };
+                let namespace = match kube_parts.get(2) {
+                    Some(namespace) => namespace.to_string(),
+                    None => "default".to_string(), // Use "default" if namespace is missing
                 };
                 Ok(ValueStoreConfig::Kubernetes {
                     name,
@@ -199,10 +229,7 @@ impl TryFrom<String> for ValueStoreConfig {
                     resource_type,
                 })
             }
-            _ => Err(eyre!(
-                "invalid value store config [{}]: use 'inmemory', 'sqlite:/path/to/filename.db' or 'kubernetes:secret|configmap,name[,namespace]'",
-                s
-            )),
+            _ => Err(invalid()),
         }
     }
 }
@@ -315,8 +342,27 @@ impl Default for AppSettings {
                 DurationSetting(Duration::from_millis(200)),
             )
             .0,
+            rule_max_firings_per_sec: settings::generic_setting(
+                &ENV_PREFIX,
+                "RULE_MAX_FIRINGS_PER_SEC",
+                CountSetting(DEFAULT_MAX_FIRINGS_PER_SEC),
+            )
+            .0,
         }
     }
+}
+
+/// MQTT client config for the discovery and generic MQTT clients. They share the virtual-device
+/// client's [`KEEP_ALIVE_SECS`] so a CPU-bound Lua script blocking the current-thread runtime for
+/// its budget does not drop the connections.
+pub fn mqtt_client_config(settings: &HomieSettings) -> MqttClientConfig {
+    settings.to_mqtt_client_config().keep_alive(KEEP_ALIVE_SECS)
+}
+
+/// MQTT client config for an MQTT config-backend watcher's dedicated connection, with the same
+/// keep-alive as [`mqtt_client_config`].
+pub fn config_backend_client_config(settings: &HomieSettings, client_id_suffix: &str) -> MqttClientConfig {
+    mqtt_client_config(settings).client_id(format!("{}{}", &settings.client_id, client_id_suffix))
 }
 
 pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> VirtualDeviceManagerConfig {
@@ -339,5 +385,67 @@ pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> Vir
             .then_some(app.controller_children_debounce),
         keep_alive_secs: KEEP_ALIVE_SECS,
         max_inflight_msgs: MAX_INFLIGHT_MSGS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn value_store(s: &str) -> Result<ValueStoreConfig, eyre::Report> {
+        ValueStoreConfig::try_from(s.to_string())
+    }
+
+    #[test]
+    fn mqtt_client_config_uses_long_keep_alive() {
+        let homie = HomieSettings::from_env("HCACTL_TEST_UNSET", "hcactl-", HomieDomain::Default);
+        let config = mqtt_client_config(&homie);
+        assert_eq!(config.keep_alive, KEEP_ALIVE_SECS);
+        assert_eq!(config.to_mqtt_options().unwrap().keep_alive(), Duration::from_secs(KEEP_ALIVE_SECS));
+    }
+
+    #[test]
+    fn config_backend_client_config_uses_long_keep_alive_and_suffixed_client_id() {
+        let homie = HomieSettings::from_env("HCACTL_TEST_UNSET", "hcactl-", HomieDomain::Default);
+        let options = config_backend_client_config(&homie, "-cfg-r")
+            .to_mqtt_options()
+            .unwrap();
+        assert_eq!(options.keep_alive(), Duration::from_secs(KEEP_ALIVE_SECS));
+        assert_eq!(options.client_id(), format!("{}-cfg-r", homie.client_id));
+    }
+
+    #[test]
+    fn count_setting_parses_non_negative_integers() {
+        assert_eq!(CountSetting::try_from(" 20 ".to_string()).unwrap().0, 20);
+        assert_eq!(CountSetting::try_from("0".to_string()).unwrap().0, 0);
+        assert!(CountSetting::try_from("-1".to_string()).is_err());
+        assert!(CountSetting::try_from("many".to_string()).is_err());
+    }
+
+    #[test]
+    fn kubernetes_value_store_without_name_is_an_error() {
+        assert!(value_store("kubernetes:secret").is_err());
+        assert!(value_store("kubernetes:secret,").is_err());
+    }
+
+    #[test]
+    fn kubernetes_value_store_rejects_unknown_resource_type() {
+        assert!(value_store("kubernetes:secrets,store").is_err());
+    }
+
+    #[test]
+    fn kubernetes_value_store_parses() {
+        let cfg = value_store("kubernetes:secret,store").unwrap();
+        assert!(matches!(
+            cfg,
+            ValueStoreConfig::Kubernetes { ref name, ref namespace, resource_type: KubernetesResource::Secret }
+                if name == "store" && namespace == "default"
+        ));
+        let cfg = value_store("kubernetes:configmap,store,home").unwrap();
+        assert!(matches!(
+            cfg,
+            ValueStoreConfig::Kubernetes { ref namespace, resource_type: KubernetesResource::ConfigMap, .. }
+                if namespace == "home"
+        ));
     }
 }
