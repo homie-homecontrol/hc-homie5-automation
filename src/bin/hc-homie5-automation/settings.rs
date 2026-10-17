@@ -359,6 +359,12 @@ pub fn mqtt_client_config(settings: &HomieSettings) -> MqttClientConfig {
     settings.to_mqtt_client_config().keep_alive(KEEP_ALIVE_SECS)
 }
 
+/// MQTT client config for an MQTT config-backend watcher's dedicated connection, with the same
+/// keep-alive as [`mqtt_client_config`].
+pub fn config_backend_client_config(settings: &HomieSettings, client_id_suffix: &str) -> MqttClientConfig {
+    mqtt_client_config(settings).client_id(format!("{}{}", &settings.client_id, client_id_suffix))
+}
+
 pub fn vdm_config_from_homie(settings: &HomieSettings, app: &AppSettings) -> VirtualDeviceManagerConfig {
     VirtualDeviceManagerConfig {
         hostname: settings.hostname.clone(),
@@ -396,6 +402,16 @@ mod tests {
         let config = mqtt_client_config(&homie);
         assert_eq!(config.keep_alive, KEEP_ALIVE_SECS);
         assert_eq!(config.to_mqtt_options().unwrap().keep_alive(), Duration::from_secs(KEEP_ALIVE_SECS));
+    }
+
+    #[test]
+    fn config_backend_client_config_uses_long_keep_alive_and_suffixed_client_id() {
+        let homie = HomieSettings::from_env("HCACTL_TEST_UNSET", "hcactl-", HomieDomain::Default);
+        let options = config_backend_client_config(&homie, "-cfg-r")
+            .to_mqtt_options()
+            .unwrap();
+        assert_eq!(options.keep_alive(), Duration::from_secs(KEEP_ALIVE_SECS));
+        assert_eq!(options.client_id(), format!("{}-cfg-r", homie.client_id));
     }
 
     #[test]

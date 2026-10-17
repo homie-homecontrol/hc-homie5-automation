@@ -14,7 +14,9 @@ use tokio::sync::mpsc::{self};
 
 use crate::eventloop::EventMultiPlexer;
 
-use crate::settings::{mqtt_client_config, ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS};
+use crate::settings::{
+    config_backend_client_config, mqtt_client_config, ConfigBackend, ValueStoreConfig, CHANNEL_CAPACITY, SETTINGS,
+};
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::client::HomieClientHandle;
 use hc_homie5::logging::{truncate, Outage, PAYLOAD_MAX};
@@ -72,10 +74,7 @@ fn run_config_backend(
             backend::run_configmap_watcher(name.to_string(), namespace.to_string())
         }
         ConfigBackend::Mqtt { topic } => {
-            let mco = settings
-                .homie
-                .to_mqtt_client_config()
-                .client_id(format!("{}{}", &settings.homie.client_id, client_id_suffix));
+            let mco = config_backend_client_config(&settings.homie, client_id_suffix);
             backend::run_mqtt_watcher(mco.to_mqtt_options().expect("MQTT TLS configuration error"), topic, 1024)
         }
     }
