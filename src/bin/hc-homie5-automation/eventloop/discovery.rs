@@ -36,7 +36,7 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                         // ignore unhandled messages
                     }
                     DiscoveryAction::NewDevice { ref device, ref status } => {
-                        tracing::info!(device = %device.device_id(), state = %status, "device discovered");
+                        tracing::debug!(device = %device.device_id(), state = %status, "device discovered");
                         run_subject_rules(&action, &state.as_rule_ctx()).await;
                     }
                     // device added / changed
@@ -65,7 +65,7 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                     }
                     // device removed
                     DiscoveryAction::DeviceRemoved(device) => {
-                        tracing::info!(device = %device.ident.device_id(), "device removed");
+                        tracing::debug!(device = %device.ident.device_id(), "device removed");
                         // iterate over all rules and update any materialized queries with the
                         // removed device
 

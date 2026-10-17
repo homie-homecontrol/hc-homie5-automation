@@ -49,7 +49,7 @@ pub fn install_print(lua: &Lua, rule: &str) -> mlua::Result<()> {
     let rule = rule.to_owned();
     let print = lua.create_function(move |lua, args: Variadic<Value>| {
         let message = print_message(lua, args)?;
-        tracing::debug!(rule = %rule, message = truncate(&message, PAYLOAD_MAX), "lua print");
+        tracing::debug!(rule = %rule, text = truncate(&message, PAYLOAD_MAX), "lua print");
         Ok(())
     })?;
     lua.globals().set("print", print)
