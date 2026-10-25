@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
 use config_watcher::ConfigItemHash;
 use cron::Schedule;
 use std::{
@@ -152,22 +152,26 @@ fn upcoming_instants<Z>(schedule: &Schedule, after: DateTime<Z>) -> impl Iterato
 where
     Z: TimeZone + 'static,
 {
-    let mut previous: Option<NaiveDateTime> = None;
+    // The schedule runs over wall-clock times expressed as naive UTC, which has no daylight saving
+    // time; `cron`'s own timezone handling can loop forever around the end of daylight saving time.
+    let timezone = after.timezone();
+    let after_utc = after.with_timezone(&Utc);
     schedule
-        .after_owned(after)
-        .filter(move |next| {
-            let local = next.naive_local();
-            let repeated = previous == Some(local);
-            previous = Some(local);
-            !repeated
+        .after_owned(Utc.from_utc_datetime(&after.naive_local()))
+        .filter_map(move |wall_clock| {
+            let local: NaiveDateTime = wall_clock.naive_utc();
+            match timezone.from_local_datetime(&local) {
+                LocalResult::Single(instant) | LocalResult::Ambiguous(instant, _) => Some(instant.with_timezone(&Utc)),
+                LocalResult::None => None,
+            }
         })
-        .map(|next| next.with_timezone(&Utc))
+        .filter(move |instant| *instant > after_utc)
 }
 
 #[cfg(test)]
 mod cron_manager_tests {
     use super::upcoming_instants;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Local, TimeZone, Utc};
     use chrono_tz::Europe::Berlin;
     use cron::Schedule;
     use std::str::FromStr;
@@ -216,6 +220,48 @@ mod cron_manager_tests {
         // 02:00 local time occurs at 00:00 and 01:00 UTC on 2026-10-25.
         let fired = next_instants("0 0 2 * * * *", berlin(2026, 10, 24, 12, 0), 2);
         assert_eq!(fired, vec![utc(2026, 10, 25, 0, 0), utc(2026, 10, 26, 1, 0)]);
+    }
+
+    #[test]
+    fn local_timezone_schedule_keeps_advancing_after_daylight_saving_end() {
+        // With `chrono::Local`, `cron` 0.16 alternates forever between 01:00 and 02:00 UTC after
+        // the 03:00 run on 2026-10-25, blocking the controller's single-threaded runtime.
+        std::env::set_var("TZ", "Europe/Berlin");
+        let schedule = Schedule::from_str("0 0 3 * * * *").unwrap();
+        let after = utc(2026, 10, 24, 1, 0).with_timezone(&Local);
+        let fired: Vec<_> = upcoming_instants(&schedule, after).take(3).collect();
+        assert_eq!(
+            fired,
+            vec![
+                utc(2026, 10, 25, 2, 0),
+                utc(2026, 10, 26, 2, 0),
+                utc(2026, 10, 27, 2, 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn time_after_daylight_saving_end_keeps_advancing() {
+        let fired = next_instants("0 0 3 * * * *", berlin(2026, 10, 24, 3, 0), 3);
+        assert_eq!(
+            fired,
+            vec![
+                utc(2026, 10, 25, 2, 0),
+                utc(2026, 10, 26, 2, 0),
+                utc(2026, 10, 27, 2, 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn schedule_started_during_repeated_hour_skips_its_second_occurrence() {
+        // 02:30 CET is the second 02:30 local time on 2026-10-25 (01:30 UTC).
+        let after = Utc
+            .with_ymd_and_hms(2026, 10, 25, 1, 30, 0)
+            .unwrap()
+            .with_timezone(&Berlin);
+        let fired = next_instants("0 45 2 * * * *", after, 1);
+        assert_eq!(fired, vec![utc(2026, 10, 26, 1, 45)]);
     }
 
     #[test]
