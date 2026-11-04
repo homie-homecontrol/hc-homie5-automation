@@ -1,16 +1,12 @@
 use chrono::{Datelike, Local, NaiveTime, Weekday as ChronoWeekday};
-use hc_homie5::value::ValueCondition;
+use hc_homie5::value::{ConditionTree, ValueCondition};
 use homie5::HomieValue;
 use serde::Deserialize;
 
 use homie5::PropertyRef;
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum WhileConditionSet {
-    Single(WhileCondition),
-    Multiple(Vec<WhileCondition>),
-}
+/// A trigger's `while`: one condition, a list (all must hold), or an `all`/`any`/`not` tree.
+pub type WhileConditionSet = ConditionTree<WhileCondition>;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -303,5 +299,57 @@ mod tests {
         assert!(matches!(cond, TimeWhileCondition::Weekdays { .. }));
         assert!(cond.evaluate_at(t(12, 0), ChronoWeekday::Sat));
         assert!(!cond.evaluate_at(t(12, 0), ChronoWeekday::Wed));
+    }
+
+    fn while_set(yaml: &str) -> WhileConditionSet {
+        serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("{yaml}: {e}"))
+    }
+
+    /// Evaluates only the time leaves; property leaves count as false.
+    fn holds_at(set: &WhileConditionSet, time: NaiveTime, weekday: ChronoWeekday) -> bool {
+        set.evaluate(|condition| match condition {
+            WhileCondition::TimeWhileCondition(time_condition) => time_condition.evaluate_at(time, weekday),
+            WhileCondition::PropertyWhileCondition(_) => false,
+        })
+    }
+
+    #[test]
+    fn a_single_condition_and_a_list_still_parse() {
+        let single = while_set("property: dev/node/prop\ncondition: { Bool: true }\n");
+        assert!(matches!(single, ConditionTree::Leaf(WhileCondition::PropertyWhileCondition(_))));
+
+        let list = while_set("- property: dev/node/prop\n  condition: { Bool: true }\n- after: 22:00:00\n");
+        match list {
+            ConditionTree::All(entries) => assert_eq!(entries.len(), 2),
+            other => panic!("expected all, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn any_and_not_combine_property_and_time_conditions() {
+        let set = while_set(
+            r#"
+any:
+  - weekdays: [sat, sun]
+  - all:
+      - after: 18:00:00
+      - not:
+          property: glob-settings/vacation/state
+          condition: { Bool: true }
+"#,
+        );
+        assert_eq!(set.leaves().len(), 3);
+        // Saturday morning: the weekend branch holds.
+        assert!(holds_at(&set, t(9, 0), ChronoWeekday::Sat));
+        // Monday evening: after 18:00, and the vacation leaf (false here) is negated.
+        assert!(holds_at(&set, t(19, 0), ChronoWeekday::Mon));
+        // Monday morning: neither branch holds.
+        assert!(!holds_at(&set, t(9, 0), ChronoWeekday::Mon));
+    }
+
+    #[test]
+    fn a_typo_in_a_nested_condition_is_rejected() {
+        let res = serde_yaml_ng::from_str::<WhileConditionSet>("any:\n  - after: 08:00:00\n    befor: 17:00:00\n");
+        assert!(res.is_err(), "{res:?}");
     }
 }
