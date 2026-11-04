@@ -1,25 +1,10 @@
 use crate::rules::{WhileCondition, WhileConditionSet};
 use hc_homie5::store::DeviceStore;
 
+/// No `while` always holds.
 pub(crate) fn match_whilecondition_set(while_condition_set: Option<&WhileConditionSet>, devices: &DeviceStore) -> bool {
-    if let Some(while_conditions) = while_condition_set {
-        match while_conditions {
-            WhileConditionSet::Single(while_condition) => {
-                if !match_whilecondition(while_condition, devices) {
-                    return false;
-                }
-                true
-            }
-            WhileConditionSet::Multiple(vec) => {
-                if vec.iter().any(|cond| !match_whilecondition(cond, devices)) {
-                    return false;
-                }
-                true
-            }
-        }
-    } else {
-        true
-    }
+    while_condition_set
+        .is_none_or(|conditions| conditions.evaluate(|condition| match_whilecondition(condition, devices)))
 }
 
 pub(crate) fn match_whilecondition(while_condition: &WhileCondition, devices: &DeviceStore) -> bool {

@@ -400,15 +400,52 @@
       }
     },
     "WhileConditionSet": {
-      "oneOf": [
+      "description": "One condition, a list (all must hold), or an all/any/not combination.",
+      "anyOf": [
         {
-          "$ref": "#/definitions/WhileCondition"
+          "type": "object",
+          "required": ["all"],
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/WhileConditionSet"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["any"],
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/WhileConditionSet"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["not"],
+          "properties": {
+            "not": {
+              "$ref": "#/definitions/WhileConditionSet"
+            }
+          },
+          "additionalProperties": false
         },
         {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/WhileCondition"
+            "$ref": "#/definitions/WhileConditionSet"
           }
+        },
+        {
+          "$ref": "#/definitions/WhileCondition"
         }
       ]
     },

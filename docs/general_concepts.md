@@ -106,6 +106,7 @@ Operators define how the `value` is compared to the property value. The followin
 | **Always Match**     | `matchAlways`  | Matches always regardless of the value.                                             |
 | **Match if empty**   | `isEmpty`      | Matches if value is `null`, `none`, `nil`                                           |
 | **Value available**  | `exists`       | Matches if value is NOT empty                                                       |
+| **Between**          | `between`      | Matches if the property value lies between two values `[min, max]`, both included.  |
 
 ### Operator Examples
 
@@ -165,6 +166,18 @@ trigger_value:
 ```
 
 Triggers if the property value is **not** `"error"` or `"maintenance"`.
+
+#### Between (`between`):
+
+```yaml
+trigger_value:
+    operator: "between"
+    value:
+        - Float: 18.0
+        - Float: 22.0
+```
+
+Triggers when the property value is at least `18.0` and at most `22.0`. The list must contain exactly two values, the lower bound first.
 
 #### Always Match (`matchAlways`):
 

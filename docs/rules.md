@@ -303,7 +303,7 @@ The first trigger fires at sunset, the second 30 minutes after sunrise and the t
 
 ### While conditions
 
-Every trigger also has a while condition. A `while` is a list of expressions that need to evaluate to true in order for the trigger to actually fire.
+Every trigger can have a while condition that must hold for the trigger to actually fire. A `while` is a single condition, a list of conditions that all need to hold, or a combination with `all`, `any` and `not` (see [Combining conditions](#combining-conditions)).
 
 #### Example
 
@@ -348,6 +348,36 @@ Fields are:
 | `after` | ISO 8601 time without timezone | Event trigger must happen after this time |
 | `before` | ISO 8601 time without timezone | Event trigger must happen before this time |
 |`weekdays` | a list of weekdays (3 character lowercase) | Event trigger must happen on one of these days (e.g. mon, tue, fri) |
+
+#### Combining conditions
+
+Conditions can be combined and nested with `all`, `any` and `not`:
+
+| Key   | Holds when                         |
+| ----- | ---------------------------------- |
+| `all` | every listed condition holds       |
+| `any` | at least one listed condition holds |
+| `not` | the given condition does not hold  |
+
+A plain list is the same as `all`. An empty `all` always holds, an empty `any` never does. A property condition whose property has no value does not hold, so `not` around it does.
+
+Example: switch the hallway light on for motion at the weekend, or on weekday evenings while nobody is on vacation.
+
+```yaml
+triggers:
+    - properties:
+          - motion-hallway/motion/state
+      changed:
+          to: { Bool: true }
+      while:
+          any:
+              - weekdays: [sat, sun]
+              - all:
+                    - after: "18:00:00"
+                    - not:
+                          property: glob-settings/vacation/state
+                          condition: { Bool: true }
+```
 
 ## Actions
 
