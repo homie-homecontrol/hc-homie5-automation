@@ -11,6 +11,7 @@ use hc_homie5::client::{
 };
 use hc_homie5::device::HomieDevice;
 use hc_homie5::homie_device;
+use hc_homie5::store::DeviceStore;
 use hc_homie5::util::DebouncedSender;
 use homie5::{device_description::DeviceDescriptionBuilder, Homie5ControllerProtocol, HomieValue, PropertyRef};
 use tokio::sync::{mpsc, RwLock};
@@ -483,12 +484,17 @@ impl VirtualDeviceManager {
         Ok(true)
     }
 
-    pub async fn update_compound_members(&self, device_ref: &DeviceRef, desc: &HomieDeviceDescription) -> Result<bool> {
+    /// Re-evaluates query-based compound members for a discovered device. Takes the device store
+    /// the caller already holds instead of locking it again: a second read lock queues behind a
+    /// waiting writer and deadlocks.
+    pub async fn update_compound_members(&self, device_ref: &DeviceRef, devices: &DeviceStore) -> Result<bool> {
+        let Some(desc) = devices.get_device(device_ref).and_then(|d| d.description.as_ref()) else {
+            return Ok(false);
+        };
         let mut vdevices = self.devices.write().await;
         let mut index = self.index.write().await;
-        let devices = self.dm.read().await;
         for (_, vdevice) in vdevices.iter_mut() {
-            let changed = vdevice.update_compound_members(device_ref, desc, &devices).await?;
+            let changed = vdevice.update_compound_members(device_ref, desc, devices).await?;
             if changed {
                 // Only rebuild index for properties with query members, since only
                 // query member changes affect the index (direct members are static).
@@ -724,6 +730,61 @@ fn affected_groups<H: Copy + Eq + std::hash::Hash>(
 mod tests {
     use super::*;
     use homie5::HomieDomain;
+
+    /// Holds a device-store read guard while a writer is queued, as the discovery handler does
+    /// during another event: a nested read lock inside `update_compound_members` would wait behind
+    /// the writer forever.
+    #[tokio::test]
+    async fn update_compound_members_does_not_lock_device_store_again() {
+        // nothing listens on port 9; the clients only retry connecting in the background
+        let client_config = MqttClientConfig::new("127.0.0.1").port(9);
+        let (dm, _dm_handle, _dm_events) = DeviceManager::new(HomieDomain::Default, &client_config).unwrap();
+        let (client, _eventloop) = rumqttc::AsyncClient::new(rumqttc::MqttOptions::new("test", "127.0.0.1", 9), 8);
+        let (tracker, observer) = hc_homie5::client::PendingPublishTracker::new();
+        let mqtt_client = ManagedMqttClient::new(client, observer, tracker.queued_counter());
+        let (app_event_sender, _app_events) = mpsc::channel(8);
+        let config = VirtualDeviceManagerConfig {
+            hostname: "127.0.0.1".to_owned(),
+            port: 9,
+            username: String::new(),
+            password: String::new(),
+            client_id: "test".to_owned(),
+            homie_domain: HomieDomain::Default,
+            controller_id: "ctrl".to_owned().try_into().unwrap(),
+            controller_name: "ctrl".to_owned(),
+            keep_alive_secs: 5,
+            max_inflight_msgs: 8,
+            controller_children_debounce: None,
+        };
+        let (vdm, _vdm_handle, _vdm_events) =
+            VirtualDeviceManager::new(dm.clone(), mqtt_client, app_event_sender, config)
+                .await
+                .unwrap();
+
+        let device_ref = dev("sensor");
+        {
+            let mut devices = dm.write().await;
+            devices.add(&device_ref, HomieDeviceStatus::Ready);
+            let description = serde_json::from_value(serde_json::json!({
+                "homie": "5.0",
+                "version": 1,
+                "nodes": { "contact": { "properties": { "state": { "datatype": "boolean" } } } }
+            }))
+            .unwrap();
+            devices.store_description(&device_ref, description);
+        }
+
+        let devices = dm.read().await;
+        let writer_dm = dm.clone();
+        let writer = tokio::spawn(async move { writer_dm.write().await.clear() });
+        tokio::task::yield_now().await; // the writer now waits for the read guard
+
+        let update = tokio::time::timeout(Duration::from_secs(2), vdm.update_compound_members(&device_ref, &devices));
+        assert!(update.await.is_ok(), "update_compound_members waited for the device store lock");
+
+        drop(devices);
+        writer.await.unwrap();
+    }
 
     fn dev(id: &str) -> DeviceRef {
         DeviceRef::new(HomieDomain::Default, id.to_string().try_into().unwrap())

@@ -111,9 +111,7 @@ async fn device_queries_changed(device_ref: &DeviceRef, state: &mut AppState) ->
     let Some(device) = devices.get_device(device_ref) else {
         return Ok(());
     };
-    if let Some(desc) = device.description.as_ref() {
-        state.vdm.update_compound_members(device_ref, desc).await?;
-    }
+    state.vdm.update_compound_members(device_ref, &devices).await?;
     state.rules.queries_device_updated(device);
     Ok(())
 }
