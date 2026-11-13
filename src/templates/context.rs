@@ -58,30 +58,33 @@ fn annotation_maps<'a>(entries: impl IntoIterator<Item = (&'a String, &'a MetaVa
 }
 
 /// What expressions see of a `for_each` element: identity, names, `$meta` and descriptions
-/// (never property values), plus the properties that matched the query.
+/// (never property values), plus the properties that matched the query. Same shape as the
+/// dashboard's device snapshot, plus `matched`.
 ///
 /// ```yaml
 /// id: dev-1
 /// domain: homie
 /// ref: homie/dev-1
+/// exists: true
 /// name: Thermostat 1          # Homie $name or null
 /// label: Büro                 # meta friendly_name, else $name, else id
 /// meta: { room: Büro }        # first non-empty value per device annotation
 /// annotations: { room: [Büro] }
-/// matched: [homie/dev-1/thermostat/set-temperature]
 /// nodes:
 ///   thermostat:
 ///     name: Thermostat
 ///     type: hc-smarthome/v2/cap/thermostat
 ///     meta: {}
 ///     properties:
-///       set-temperature: { name, datatype, format, unit, settable, retained }
+///       set-temperature: { name, datatype, format, unit, settable, retained }  # text forms
+/// matched: [homie/dev-1/thermostat/set-temperature]
 /// ```
 pub fn device_snapshot(device: &Device, matched: Vec<Value>) -> Value {
     let mut m = Mapping::new();
     entry(&mut m, "id", device.ident.device_id().to_string());
     entry(&mut m, "domain", device.ident.homie_domain().to_string());
     entry(&mut m, "ref", device.ident.to_string());
+    entry(&mut m, "exists", true);
 
     let homie_name = device
         .description
@@ -101,7 +104,6 @@ pub fn device_snapshot(device: &Device, matched: Vec<Value>) -> Value {
     entry(&mut m, "label", label);
     entry(&mut m, "meta", meta);
     entry(&mut m, "annotations", annotations);
-    entry(&mut m, "matched", Value::Sequence(matched));
 
     let mut nodes = Mapping::new();
     if let Some(description) = device.description.as_ref() {
@@ -118,8 +120,17 @@ pub fn device_snapshot(device: &Device, matched: Vec<Value>) -> Value {
             for (prop_id, prop) in &node.properties {
                 let mut p = Mapping::new();
                 entry(&mut p, "name", opt(prop.name.as_ref()));
-                entry(&mut p, "datatype", serde_yaml_ng::to_value(prop.datatype).unwrap_or(Value::Null));
-                entry(&mut p, "format", serde_yaml_ng::to_value(&prop.format).unwrap_or(Value::Null));
+                entry(&mut p, "datatype", prop.datatype.to_string());
+                let format = prop.format.to_string();
+                entry(
+                    &mut p,
+                    "format",
+                    if format.is_empty() {
+                        Value::Null
+                    } else {
+                        Value::String(format)
+                    },
+                );
                 entry(&mut p, "unit", opt(prop.unit.as_ref()));
                 entry(&mut p, "settable", prop.settable);
                 entry(&mut p, "retained", prop.retained);
@@ -130,6 +141,7 @@ pub fn device_snapshot(device: &Device, matched: Vec<Value>) -> Value {
         }
     }
     entry(&mut m, "nodes", nodes);
+    entry(&mut m, "matched", Value::Sequence(matched));
     Value::Mapping(m)
 }
 
@@ -253,6 +265,64 @@ actions:
         let spec: VirtualDeviceSpec = serde_yaml_ng::from_value(changed.added[0].doc.clone()).unwrap();
         let nodes: Vec<&str> = spec.nodes.iter().map(|n| n.id.as_str()).collect();
         assert_eq!(nodes, vec!["door", "window"], "sorted by label: Contact door < Fenster");
+    }
+
+    #[test]
+    fn for_each_element_has_text_formats_and_the_dashboard_shape() {
+        let mut devices = DeviceStore::new();
+        let device_ref = DeviceRef::new(HomieDomain::Default, id("trv"));
+        let description: HomieDeviceDescription = serde_json::from_value(serde_json::json!({
+            "homie": "5.0",
+            "version": 1,
+            "nodes": { "thermostat": { "properties": {
+                "mode": { "datatype": "enum", "format": "off,auto,manual", "settable": true },
+                "set-temperature": { "datatype": "float", "format": "7.5:28.5:0.5", "unit": "°C" },
+                "valve": { "datatype": "integer" }
+            } } }
+        }))
+        .unwrap();
+        devices.add(&device_ref, HomieDeviceStatus::Ready);
+        devices.store_description(&device_ref, description);
+
+        let mut stage = TemplateStage::new(VIRTUAL_DEVICE_VERBATIM_KEYS);
+        stage.add_source(
+            ItemHash::new(1, 1),
+            "trv.yaml",
+            yaml("for_each: { query: {} }\nitem: { id: \"{{ item.id }}\", element: \"{{ item }}\" }"),
+        );
+        let result = stage.reconcile(&DeviceContext::new(&devices));
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let element = &result.added[0].doc["element"];
+        let keys: Vec<&str> = element.as_mapping().unwrap().keys().filter_map(Value::as_str).collect();
+        assert_eq!(
+            keys,
+            [
+                "id",
+                "domain",
+                "ref",
+                "exists",
+                "name",
+                "label",
+                "meta",
+                "annotations",
+                "nodes",
+                "matched"
+            ]
+        );
+        assert_eq!(element["exists"], Value::Bool(true));
+        assert_eq!(element["name"], Value::Null);
+        assert_eq!(element["label"], yaml("trv"));
+        let properties = &element["nodes"]["thermostat"]["properties"];
+        assert_eq!(
+            properties["mode"],
+            yaml(
+                "{ name: null, datatype: enum, format: 'off,auto,manual', unit: null, settable: true, retained: true }"
+            )
+        );
+        assert_eq!(properties["set-temperature"]["datatype"], yaml("float"));
+        assert_eq!(properties["set-temperature"]["format"], yaml("'7.5:28.5:0.5'"));
+        assert_eq!(properties["valve"]["format"], Value::Null);
     }
 
     #[test]

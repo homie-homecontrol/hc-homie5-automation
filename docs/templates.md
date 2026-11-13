@@ -73,19 +73,28 @@ What `item` holds (descriptions and `$meta`, never property values):
 id: dev-1
 domain: homie
 ref: homie/dev-1
+exists: true
 name: Thermostat 1          # Homie $name or null
 label: Büro                 # meta friendly_name, else $name, else id
 meta: { room: Büro }        # first non-empty value per device annotation
 annotations: { room: [Büro] }
-matched: [homie/dev-1/thermostat/set-temperature]   # properties matching the query
 nodes:
   thermostat:
     name: Thermostat
     type: hc-smarthome/v2/cap/thermostat
-    meta: {}
+    meta: {}                # node annotations, first values
     properties:
-      set-temperature: { name, datatype, format, unit, settable, retained }
+      set-temperature:
+        name: Target temperature
+        datatype: float     # text form
+        format: "7.5:28.5:0.5"   # text form, null when the property has none
+        unit: "°C"
+        settable: true
+        retained: true
+matched: [homie/dev-1/thermostat/set-temperature]   # properties matching the query
 ```
+
+This is the device snapshot the dashboard's expressions see, plus `matched`.
 
 A virtual device with one node per annotated window contact:
 
