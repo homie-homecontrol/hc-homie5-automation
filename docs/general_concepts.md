@@ -101,8 +101,8 @@ Operators define how the `value` is compared to the property value. The followin
 | **Less Than**        | `<`            | Matches if the property value is **less** than the specified value.                 |
 | **Greater or Equal** | `>=`           | Matches if the property value is **greater than or equal** to the specified value.  |
 | **Less or Equal**    | `<=`           | Matches if the property value is **less than or equal** to the specified value.     |
-| **Includes Any**     | `includesAny`  | Matches if the property value matches **any value** in the specified list.          |
-| **Includes None**    | `includesNone` | Matches if the property value matches **none of the values** in the specified list. |
+| **Includes Any**     | `includesAny`  | Matches if the property value **is one of** the values in the specified list.       |
+| **Includes None**    | `includesNone` | Matches if the property value **is none of** the values in the specified list.       |
 | **Always Match**     | `matchAlways`  | Matches always regardless of the value.                                             |
 | **Match if empty**   | `isEmpty`      | Matches if value is `null`, `none`, `nil`                                           |
 | **Value available**  | `exists`       | Matches if value is NOT empty                                                       |
@@ -165,7 +165,9 @@ trigger_value:
         - String: "maintenance"
 ```
 
-Triggers if the property value is **not** `"error"` or `"maintenance"`.
+Triggers if the property value is **none of** `"error"` and `"maintenance"`.
+
+`includesAny` and `includesNone` compare a single value against a list; they behave like `=` and `<>` with a value list.
 
 #### Between (`between`):
 
@@ -201,10 +203,10 @@ queries:
           name: optional value condition
           version: optional value condition
           homie: optional value condition
-          children: optional value condition
+          children: optional list condition
           root: optional value condition
           parent: optional value condition
-          extensions: optional value condition
+          extensions: optional list condition
       node:
           id: optional value condition
           name: optional value condition
@@ -217,10 +219,39 @@ queries:
           settable: optional value condition
           retained: optional value condition
           unit: optional value condition
+      meta:
+          annotations:
+              <annotation key>: list condition
 ```
 
 A value condition can be defined for every attribute of the device, node and property definiton.
-If a attribute is not defined all values match. The same goes for the `device`, `node` or `property` attribute of the query.
+If a attribute is not defined all values match. The same goes for the `device`, `node`, `property` or `meta` attribute of the query.
+
+### List conditions
+
+Attributes that hold a list (`device.children`, `device.extensions` and every `$meta` annotation) take a
+list condition: a mapping with exactly one quantifier key, each wrapping a value condition for the elements.
+
+| Form             | Holds when                       | Empty or missing list |
+| ---------------- | -------------------------------- | --------------------- |
+| `any: <cond>`    | at least one element matches     | no                    |
+| `all: <cond>`    | every element matches            | yes                   |
+| `none: <cond>`   | no element matches               | yes                   |
+| `first: <cond>`  | the first element matches        | no                    |
+| `empty: true`    | the list is empty (`false`: not) | `true` / `false`      |
+
+A bare value condition (for example `extensions: org.homie.legacy-stats`) is rejected; write
+`extensions: { any: org.homie.legacy-stats }`.
+
+### Meta annotations
+
+`meta.annotations` matches the device-level annotations of the device's merged `$meta` overlay (all
+providers, including the automation's own manual overlays). A single annotation value counts as a
+one-element list, a missing annotation as an empty list. Annotation values are always strings, so compare
+with `"true"`, not `true`.
+
+When a device's `$meta` overlay changes, rule queries and query-based compound members are re-evaluated
+for it: a device that now matches is added, one that no longer matches is dropped.
 
 ### Examples:
 
@@ -249,4 +280,22 @@ Match all properties of device with id "garden-weather-sensor"
 queries:
     - device:
           id: garden-weather-sensor
+```
+
+Match the `state` property of every contact sensor tagged `window` whose first room is the bathroom or the hall
+
+```yaml
+queries:
+    - node:
+          type: "hc-smarthome/v2/cap/contact"
+      property:
+          id: state
+      meta:
+          annotations:
+              tags: { any: window }
+              room:
+                  first:
+                      operator: "="
+                      value: [bathroom, hall]
+              heating: { none: "true" }
 ```

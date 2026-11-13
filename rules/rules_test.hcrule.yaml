@@ -66,8 +66,7 @@ triggers:
   - queries:
       - device:
           children:
-            operator: includesAny
-            value: ["dev-1"]
+            any: dev-1
         node:
           id: switch
         property:

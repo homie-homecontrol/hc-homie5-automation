@@ -948,9 +948,9 @@ dependencies = [
 
 [[package]]
 name = "hc-homie5"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79a9b11b5134877b41d6adaa55581a65d6318ed24536421a446436f2daf5a2ce"
+checksum = "6bedf98101fb0d1302159649bb04f5f070ce6897be412715c0678c91b6a8215a"
 dependencies = [
  "chrono",
  "hc-homie5-macros",

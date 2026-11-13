@@ -4,9 +4,11 @@ use hc_homie5::logging::{truncate, TRACE_PAYLOAD_MAX};
 use hc_homie5::model::DiscoveryAction;
 use hc_homie5_automation::{
     app_state::{AppState, ConnectionEvent, ConnectionState},
+    meta::apply_meta_message,
     rules::run_subject_rules,
     utils::log_homie_message,
 };
+use homie5::DeviceRef;
 
 use super::MqttConnection;
 
@@ -47,21 +49,11 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                             let mut devices = state.dm.write().await;
                             state.meta_handler.apply_pending_for_device(device_ref, &mut devices);
                         }
-                        // Read lock scope: update compound members and queries
-                        let devices = state.dm.read().await;
-                        let desc = devices.get_device(device_ref).and_then(|d| d.description.as_ref());
-
-                        if let Some(desc) = desc {
-                            state.vdm.update_compound_members(device_ref, desc).await?;
-                        }
-
                         // schedule debounced rebuilds for group devices this
                         // device is a member of (no-op for non-members)
                         state.vdm.source_device_changed(device_ref).await;
 
-                        // iterate over all rules and update any materialized queries with the
-                        // updated/added device
-                        state.rules.queries_device_updated(device_ref, desc);
+                        device_queries_changed(device_ref, state).await?;
                     }
                     // device removed
                     DiscoveryAction::DeviceRemoved(device) => {
@@ -93,8 +85,14 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
             }
         }
         HomieClientEvent::MetaMessage(event) => {
-            let mut devices = state.dm.write().await;
-            state.meta_handler.handle_meta_message(event, &mut devices);
+            let changed = {
+                let mut devices = state.dm.write().await;
+                apply_meta_message(&mut state.meta_handler, event, &mut devices)
+            };
+            for device_ref in changed.iter() {
+                tracing::debug!(device = %device_ref.device_id(), "device meta overlay changed");
+                device_queries_changed(device_ref, state).await?;
+            }
         }
         HomieClientEvent::Stop => {
             MqttConnection::Discovery.handle_stop(state).await;
@@ -104,4 +102,18 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
         }
     }
     Ok(false)
+}
+
+/// Re-evaluates query-based compound members and rule queries for a device whose description or
+/// `$meta` overlay changed: a newly matching device is added, one that no longer matches removed.
+async fn device_queries_changed(device_ref: &DeviceRef, state: &mut AppState) -> Result<()> {
+    let devices = state.dm.read().await;
+    let Some(device) = devices.get_device(device_ref) else {
+        return Ok(());
+    };
+    if let Some(desc) = device.description.as_ref() {
+        state.vdm.update_compound_members(device_ref, desc).await?;
+    }
+    state.rules.queries_device_updated(device);
+    Ok(())
 }

@@ -3,8 +3,9 @@ use crate::{
     device_manager::DeviceManager,
     mqtt_client::ManagedMqttClient,
     rules::{
-        add_solar_triggers, queries_init_materialized, schedule_cron, self_triggering_mqtt_actions,
-        subscribe_mqtt_trigger, unsubscribe_mqtt_trigger, FiringDecision, FiringLimiter, Rule,
+        add_solar_triggers, queries_device_updated, queries_init_materialized, schedule_cron,
+        self_triggering_mqtt_actions, subscribe_mqtt_trigger, unsubscribe_mqtt_trigger, FiringDecision, FiringLimiter,
+        Rule,
     },
     solar_events::SolarEventManager,
     timer_manager::TimerManager,
@@ -12,6 +13,7 @@ use crate::{
 };
 use color_eyre::eyre::Result;
 use config_watcher::ConfigItemHash;
+use hc_homie5::model::Device;
 use homie5::{device_description::HomieDeviceDescription, DeviceRef};
 use std::{
     cell::RefCell,
@@ -120,27 +122,11 @@ impl RuleManager {
         }
     }
 
-    pub fn queries_device_updated(&mut self, device_ref: &DeviceRef, desc: Option<&HomieDeviceDescription>) {
-        let Some(desc) = desc else {
-            return;
-        };
-        for (_, rule) in self.iter_mut() {
-            for trigger in rule.triggers.iter_mut() {
-                match trigger {
-                    crate::rules::RuleTrigger::PropertyTriggered { ref mut queries, .. } => {
-                        for query in queries.iter_mut() {
-                            query.add_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
-                        }
-                    }
-                    crate::rules::RuleTrigger::PropertyChanged { ref mut queries, .. } => {
-                        for query in queries.iter_mut() {
-                            query.add_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
-                        }
-                    }
-
-                    _ => {}
-                }
-            }
+    /// Re-evaluates every rule's property queries against a discovered device after its
+    /// description or `$meta` overlay changed.
+    pub fn queries_device_updated(&mut self, device: &Device) {
+        for rule in self.values_mut() {
+            queries_device_updated(rule, device);
         }
     }
     pub fn queries_device_removed(&mut self, device_ref: &DeviceRef, desc: Option<&HomieDeviceDescription>) {
@@ -175,7 +161,8 @@ impl RuleManager {
                 } = trigger
                 {
                     for query in on_set_queries.iter_mut() {
-                        query.add_materialized(device_ref.homie_domain(), device_ref.device_id(), desc);
+                        // virtual devices carry no $meta overlay
+                        query.add_materialized(device_ref.homie_domain(), device_ref.device_id(), desc, None);
                     }
                 }
             }
