@@ -15,6 +15,7 @@ use hc_homie5_automation::{
     panic_guard::contain,
     rules::Rule,
     solar_events::SolarEvent,
+    templates::ConfigDocument,
     timer_manager::TimerEvent,
     virtual_devices::VirtualDeviceSpec,
 };
@@ -36,6 +37,7 @@ mod meta;
 mod mqtt_client;
 mod rules;
 mod solar;
+mod templates;
 mod timers;
 mod virtual_devices;
 
@@ -47,8 +49,8 @@ define_event_multiplexer! {
         App(AppEvent) => app,
         DiscoveryClient(HomieClientEvent) => discovery_client,
         VirtualDevicesClient(HomieClientEvent) => virtual_devices,
-        RulesChanges(ConfigItemEvent<Rule>) => rules_changes,
-        VirtualDevicesChanges(ConfigItemEvent<VirtualDeviceSpec>) => vdevice_changes,
+        RulesChanges(ConfigItemEvent<ConfigDocument<Rule>>) => rules_changes,
+        VirtualDevicesChanges(ConfigItemEvent<ConfigDocument<VirtualDeviceSpec>>) => vdevice_changes,
         LuaFilesChanges(ConfigItemEvent<String>) => lua_changes,
         MetaChanges(ConfigItemEvent<MetaConfig>) => meta_changes,
         TimerEvent(TimerEvent) => timer_event,

@@ -245,6 +245,18 @@ mod duration_tests {
 mod parse_tests {
     use super::*;
 
+    /// Every document of the shipped example rule file keeps parsing.
+    #[test]
+    fn example_rules_parse() {
+        let raw = include_str!("../../../rules/rules_test.hcrule.yaml");
+        let mut count = 0;
+        for (i, doc) in serde_yaml_ng::Deserializer::from_str(raw).enumerate() {
+            Rule::deserialize(doc).unwrap_or_else(|e| panic!("document {i} failed to parse: {e}"));
+            count += 1;
+        }
+        assert!(count > 0, "expected at least one document in rules_test.hcrule.yaml");
+    }
+
     #[test]
     fn trigger_error_names_rule_and_trigger() {
         let doc = "name: kitchen-light\ntriggers:\n  - timer_id: t\n  - properties: [dev/node/prop]\n    chnged: {}\nactions: []\n";

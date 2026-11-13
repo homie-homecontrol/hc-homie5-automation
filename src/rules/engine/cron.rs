@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use config_watcher::ConfigItemHash;
+use crate::config_item::ItemHash;
 use hc_homie5::logging::chain;
 
 use super::{run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
@@ -27,7 +27,7 @@ pub async fn run_cron_rules(event: &CronEvent, ctx: &RuleContext<'_>) {
     }
 }
 
-pub fn schedule_cron(rule_hash: ConfigItemHash, rule: &Rule, cron_manager: &CronManager) {
+pub fn schedule_cron(rule_hash: ItemHash, rule: &Rule, cron_manager: &CronManager) {
     for (trigger_index, trigger) in rule.triggers.iter().enumerate() {
         if let RuleTrigger::CronTrigger { schedule, r#while: _ } = trigger {
             if let Err(err) = ::cron::Schedule::from_str(schedule) {

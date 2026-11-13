@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use std::collections::{btree_map, HashMap, HashSet};
 
+use crate::config_item::ItemHash;
 use color_eyre::eyre::{self, eyre, Result};
-use config_watcher::ConfigItemHash;
 use hc_homie5::device::HomieDevice;
 use hc_homie5::homie_device;
 use hc_homie5::logging::{chain, truncate, PAYLOAD_MAX};
@@ -31,7 +31,7 @@ use super::{virtual_property::VirtualProperty, SmarthomeSpec, VirtualDeviceSpec}
 #[homie_device]
 #[derive(Debug)]
 pub struct VirtualDevice {
-    spec_hash: ConfigItemHash,
+    spec_hash: ItemHash,
     pub(crate) properties: HashMap<PropertyPointer, VirtualProperty>,
     pub(crate) alerts: HashMap<HomieID, String>,
     mqtt_client: ManagedMqttClient,
@@ -43,7 +43,7 @@ impl VirtualDevice {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         device_ref: DeviceRef,
-        spec_hash: ConfigItemHash,
+        spec_hash: ItemHash,
         spec: VirtualDeviceSpec,
         root_ref: DeviceRef,
         homie_proto: &Homie5DeviceProtocol,
@@ -206,7 +206,7 @@ impl VirtualDevice {
         })
     }
 
-    pub fn spec_hash(&self) -> ConfigItemHash {
+    pub fn spec_hash(&self) -> ItemHash {
         self.spec_hash
     }
 
@@ -227,10 +227,11 @@ impl VirtualDevice {
         desc: &HomieDeviceDescription,
         devices: &DeviceStore,
     ) -> Result<bool> {
-        for (_, vprop) in self.properties.iter_mut() {
-            vprop.update_compound_members(device_ref, desc, devices).await?;
+        let mut changed = false;
+        for vprop in self.properties.values_mut() {
+            changed |= vprop.update_compound_members(device_ref, desc, devices).await?;
         }
-        Ok(true)
+        Ok(changed)
     }
 
     pub async fn update_member_value_prop(

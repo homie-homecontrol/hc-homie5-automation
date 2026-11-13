@@ -1,0 +1,9 @@
+---
+# Office smart thermostat: the Matter TRV (Eurotronic) controlled by smart_heating.lua, with the
+# room sensor leq1258226 as the reference.
+use: smart-thermostat
+with:
+  id: bue-thermostat
+  name: Buero Thermostat
+  trv: matter-5489-227-5fdb7d425dda566c
+  sensor: leq1258226

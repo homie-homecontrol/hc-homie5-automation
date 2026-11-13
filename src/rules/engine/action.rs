@@ -1,4 +1,5 @@
 use super::{FiringDecision, RuleContext, FIRING_WINDOW};
+use crate::config_item::ItemHash;
 use crate::lua_runtime::{
     install_print, new_sandboxed_lua, setup_custom_loader, LuaEvent, LuaHomie, LuaTimer, LuaUtils, LuaValueStore,
     LuaVirtualDevice,
@@ -11,7 +12,6 @@ use crate::{
     timer_manager::TimerManager,
 };
 use color_eyre::eyre::{eyre, Result};
-use config_watcher::ConfigItemHash;
 use hc_homie5::client::HomieMQTTClient;
 use hc_homie5::logging::{chain, truncate, PAYLOAD_MAX};
 use hc_homie5::value::MappingResult;
@@ -33,7 +33,7 @@ const SLOW_ACTION_WARN_THRESHOLD: Duration = Duration::from_millis(250);
 const LUA_HOOK_INSTRUCTION_INTERVAL: u32 = 16384;
 
 pub async fn run_rule_actions<'a>(
-    rule_hash: ConfigItemHash,
+    rule_hash: ItemHash,
     rule: &Rule,
     trigger_event: RuleTriggerEvent<'a>,
     ctx: &RuleContext<'a>,
@@ -110,7 +110,7 @@ fn trigger_value(event: &RuleTriggerEvent<'_>) -> Option<String> {
 }
 
 pub async fn execute_rule_action<'a>(
-    rule_hash: ConfigItemHash,
+    rule_hash: ItemHash,
     rule_name: &str,
     action: &RuleAction,
     trigger_event: &RuleTriggerEvent<'a>,
@@ -307,7 +307,7 @@ fn target_failures_result(failures: usize, attempts: usize) -> Result<()> {
 }
 
 async fn handle_timer(
-    rule_hash: ConfigItemHash,
+    rule_hash: ItemHash,
     rule_name: &str,
     action: Option<RuleAction>,
     trigger_event: &RuleTriggerEvent<'_>,
@@ -361,7 +361,7 @@ fn effective_script_budget(per_action: Option<Duration>, global_default: Duratio
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_script(
     script: &str,
-    rule_hash: ConfigItemHash,
+    rule_hash: ItemHash,
     rule_name: &str,
     script_timeout: Option<Duration>,
     trigger_event: &RuleTriggerEvent<'_>,

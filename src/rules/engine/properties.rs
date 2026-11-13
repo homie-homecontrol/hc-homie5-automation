@@ -284,4 +284,93 @@ mod tests {
         let trigger = triggered(vec![p.clone()], ValueCondition::Value(HomieValue::Bool(true)));
         assert!(!match_prop_change(&p, &trigger, None, &HomieValue::Bool(true), &devices));
     }
+
+    // --- meta queries ---
+
+    const META_RULE: &str = r#"
+name: hall lights
+triggers:
+  - queries:
+      - meta:
+          annotations:
+            room: { any: hall }
+        property:
+          id: state
+    trigger_value: { Bool: true }
+actions:
+  - type: set
+    target: homie/hall-light/switch/state
+    value: { Bool: true }
+"#;
+
+    fn device_ref(id: &str) -> homie5::DeviceRef {
+        homie5::DeviceRef::new(homie5::HomieDomain::Default, id.to_owned().try_into().unwrap())
+    }
+
+    fn add_switch_device(devices: &mut DeviceStore, id: &str) -> homie5::DeviceRef {
+        let device_ref = device_ref(id);
+        let description: homie5::device_description::HomieDeviceDescription =
+            serde_json::from_value(serde_json::json!({
+                "homie": "5.0",
+                "version": 1,
+                "nodes": { "switch": { "properties": { "state": { "datatype": "boolean", "settable": true } } } }
+            }))
+            .unwrap();
+        devices.add(&device_ref, homie5::HomieDeviceStatus::Ready);
+        devices.store_description(&device_ref, description);
+        device_ref
+    }
+
+    fn set_room(devices: &mut DeviceStore, device_ref: &homie5::DeviceRef, room: &str) {
+        let overlay = serde_json::from_value(serde_json::json!({
+            "schema": 1,
+            "device": { "annotations": { "room": room } }
+        }))
+        .unwrap();
+        devices
+            .get_device_mut(device_ref)
+            .unwrap()
+            .set_meta_overlay("manual".to_owned().try_into().unwrap(), overlay);
+    }
+
+    fn fires(rule: &crate::rules::Rule, prop: &PropertyRef, devices: &DeviceStore) -> bool {
+        match_prop_trigger(prop, &rule.triggers[0], &HomieValue::Bool(true), devices)
+    }
+
+    #[test]
+    fn meta_query_rule_fires_for_annotated_device_only() {
+        let mut devices = DeviceStore::new();
+        let hall = add_switch_device(&mut devices, "hall-sensor");
+        let kitchen = add_switch_device(&mut devices, "kitchen-sensor");
+        set_room(&mut devices, &hall, "hall");
+        set_room(&mut devices, &kitchen, "kitchen");
+
+        let mut rule = crate::rules::parse_rule(META_RULE).unwrap();
+        crate::rules::queries_init_materialized(&mut rule, &devices, &Default::default());
+
+        assert!(fires(&rule, &prop("homie/hall-sensor/switch/state"), &devices));
+        assert!(!fires(&rule, &prop("homie/kitchen-sensor/switch/state"), &devices));
+    }
+
+    #[test]
+    fn meta_query_follows_overlay_changes() {
+        let mut devices = DeviceStore::new();
+        let sensor = add_switch_device(&mut devices, "sensor");
+        let p = prop("homie/sensor/switch/state");
+
+        let mut rule = crate::rules::parse_rule(META_RULE).unwrap();
+        crate::rules::queries_init_materialized(&mut rule, &devices, &Default::default());
+        assert!(!fires(&rule, &p, &devices), "no overlay yet");
+
+        set_room(&mut devices, &sensor, "hall");
+        crate::rules::queries_device_updated(&mut rule, devices.get_device(&sensor).unwrap());
+        assert!(fires(&rule, &p, &devices), "annotation added");
+
+        devices
+            .get_device_mut(&sensor)
+            .unwrap()
+            .remove_meta_overlay(&"manual".to_owned().try_into().unwrap());
+        crate::rules::queries_device_updated(&mut rule, devices.get_device(&sensor).unwrap());
+        assert!(!fires(&rule, &p, &devices), "annotation removed");
+    }
 }

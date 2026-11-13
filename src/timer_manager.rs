@@ -1,4 +1,4 @@
-use config_watcher::ConfigItemHash;
+use crate::config_item::ItemHash;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, PoisonError},
@@ -22,14 +22,14 @@ pub const MAX_TIMER_DURATION: Duration = Duration::from_secs(100 * 365 * 24 * 60
 pub struct Timer {
     #[allow(dead_code)]
     pub id: String,
-    pub rule_hash: ConfigItemHash,
+    pub rule_hash: ItemHash,
     pub handle: JoinHandle<()>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TimerEvent {
     pub id: String,
-    pub rule_hash: ConfigItemHash,
+    pub rule_hash: ItemHash,
     pub rule_action: Option<RuleAction>,
     pub trigger_event: Option<Box<RuleTriggerEvent<'static>>>,
 }
@@ -55,7 +55,7 @@ impl TimerManager {
     /// Creates a new timer
     pub fn create_timer(
         &self,
-        rule_hash: ConfigItemHash,
+        rule_hash: ItemHash,
         id: String,
         duration: Duration,
         repeat: Option<Duration>,
@@ -146,7 +146,7 @@ impl TimerManager {
         }
     }
 
-    pub fn remove_timers_for_rule(&self, rule_hash: ConfigItemHash) {
+    pub fn remove_timers_for_rule(&self, rule_hash: ItemHash) {
         let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         timers.retain(|id, timer| {
             if timer.rule_hash == rule_hash {
@@ -217,7 +217,7 @@ mod timer_manager_tests {
 
     // Exercises the same `spawn_and_register` path used by `create_timer`. We
     // store bare `JoinHandle`s here (rather than `Timer`) so the test does not
-    // need a `ConfigItemHash`, which has no public constructor; the locking
+    // need a `ItemHash`, which has no public constructor; the locking
     // discipline under test is identical.
 
     #[tokio::test]

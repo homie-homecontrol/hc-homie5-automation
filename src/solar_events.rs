@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::time::Duration;
 
+use crate::config_item::ItemHash;
 use chrono::{DateTime, TimeZone, Utc};
 use color_eyre::eyre::Result;
-use config_watcher::ConfigItemHash;
 use hc_homie5::logging::chain;
 use hc_homie5::value::ValueMatcher;
 use serde::{Deserialize, Serialize};
@@ -93,8 +93,8 @@ impl ValueMatcher for SolarPhase {
 
 #[derive(Debug, Clone)]
 pub struct SolarEventTrigger {
-    pub rule_hash: ConfigItemHash, // Associated rule identifier
-    pub event: SolarEvent,         // Type of solar event trigger
+    pub rule_hash: ItemHash, // Associated rule identifier
+    pub event: SolarEvent,   // Type of solar event trigger
 }
 
 #[derive(Debug, Clone)]
@@ -106,8 +106,8 @@ pub enum SolarEvent {
 
 #[derive(Debug)]
 pub enum TriggerUpdate {
-    Add(SolarEventTrigger),       // Add a single trigger
-    RemoveByRule(ConfigItemHash), // Remove all triggers for a specific rule
+    Add(SolarEventTrigger), // Add a single trigger
+    RemoveByRule(ItemHash), // Remove all triggers for a specific rule
 }
 
 #[derive(Debug)]
@@ -135,7 +135,7 @@ impl SolarEventManager {
         Ok(())
     }
 
-    pub async fn remove_triggers_by_rule(&self, rule_hash: ConfigItemHash) -> Result<()> {
+    pub async fn remove_triggers_by_rule(&self, rule_hash: ItemHash) -> Result<()> {
         self.updates.send(TriggerUpdate::RemoveByRule(rule_hash)).await?;
         Ok(())
     }
@@ -222,7 +222,7 @@ pub fn run_solar_event_task(
     )
 }
 
-async fn send_due(scheduler: &mut SolarScheduler<ConfigItemHash>, event_sender: &mpsc::Sender<SolarEvent>) {
+async fn send_due(scheduler: &mut SolarScheduler<ItemHash>, event_sender: &mpsc::Sender<SolarEvent>) {
     for event in scheduler.take_due(Utc::now()) {
         tracing::trace!(event = ?event, "solar event due");
         if let Err(err) = event_sender.send(event.clone()).await {

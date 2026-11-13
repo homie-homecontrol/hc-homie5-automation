@@ -1,9 +1,9 @@
 use super::{matching_rules, run_rule_actions, while_condition::match_whilecondition_set, RuleContext};
+use crate::config_item::ItemHash;
 use crate::{
     rules::{Rule, RuleTrigger},
     solar_events::{SolarEvent, SolarEventManager, SolarEventTrigger},
 };
-use config_watcher::ConfigItemHash;
 use hc_homie5::logging::chain;
 use hc_homie5::store::DeviceStore;
 
@@ -84,7 +84,7 @@ fn match_solar_event(event: &SolarEvent, trigger: &RuleTrigger, devices: &Device
     }
 }
 
-pub async fn add_solar_triggers(rule_hash: ConfigItemHash, rule: &Rule, solar_manager: &SolarEventManager) {
+pub async fn add_solar_triggers(rule_hash: ItemHash, rule: &Rule, solar_manager: &SolarEventManager) {
     for trigger in rule.triggers.iter() {
         match trigger {
             RuleTrigger::SolarEventTrigger { sun_phase, r#while: _ } => {

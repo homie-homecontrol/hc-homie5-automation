@@ -6,6 +6,8 @@ use hc_homie5::device::{HomieDevice, HomieDeviceCore};
 use hc_homie5::logging::chain;
 use hc_homie5_automation::app_state::{AppEvent, AppState};
 
+use super::templates::expand_templates;
+
 pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<bool> {
     match event {
         AppEvent::RecalculateVirtualPropertyValue(prop) => {
@@ -41,6 +43,9 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
                         .queries_virtual_device_updated(&device_ref, vdev.description());
                 }
             }
+        }
+        AppEvent::ExpandTemplates => {
+            expand_templates(state).await?;
         }
         AppEvent::Exit => {
             tracing::info!("stopping");
