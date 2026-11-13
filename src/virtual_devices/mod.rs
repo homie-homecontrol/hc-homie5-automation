@@ -5,6 +5,7 @@ mod group_materializer;
 mod model;
 mod property_indexer;
 mod query_compound_member;
+mod removal;
 mod virtual_device;
 mod virtual_device_manager;
 mod virtual_property;

@@ -854,6 +854,18 @@ nodes:
 - The single overlay entry narrows the generated `switch/action` format down to `toggle` (the bulbs additionally support e.g. `brightness-up`); members and aggregate of that property remain the generated ones.
 - New bulbs only need to be added to `group.devices`.
 
+# Removing a Virtual Device
+
+When a virtual device disappears from the config (document or file deleted), the controller
+publishes `$state = disconnected` at once and, 2 seconds later, deletes the device from the broker
+per Homie 5: its alerts, `$state`, `$description` and every retained property value and `$target`
+are cleared.
+
+If a device with the same ID exists again by then (the document was edited, a template was
+re-expanded, a group was rebuilt), nothing is deleted: its retained values stay, so
+`read_from_mqtt` restores them. Only retained properties and alerts the new device no longer has
+are cleared. A controller shutdown only disconnects the devices.
+
 # Templates
 
 Virtual devices can be written once as a template (`*.tpl.yaml` in the virtual-devices folder)
