@@ -853,3 +853,9 @@ nodes:
 - Boolean properties (e.g., `switch/state`) aggregate with `or`, numeric ones (e.g., `level/value`, `color/color-temperature`) with `avg` — both with the group-wide `150ms` debounce; everything else uses `equal`.
 - The single overlay entry narrows the generated `switch/action` format down to `toggle` (the bulbs additionally support e.g. `brightness-up`); members and aggregate of that property remain the generated ones.
 - New bulbs only need to be added to `group.devices`.
+
+# Templates
+
+Virtual devices can be written once as a template (`*.tpl.yaml` in the virtual-devices folder)
+and instantiated with `use:`/`with:`, or generated per device with `for_each`, also inside node,
+property and `members` lists. See [templates.md](templates.md).

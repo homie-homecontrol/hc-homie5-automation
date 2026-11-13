@@ -4,8 +4,8 @@ use std::{
     time::Duration,
 };
 
+use crate::config_item::ItemHash;
 use color_eyre::eyre::{self, eyre, Result};
-use config_watcher::ConfigItemHash;
 use hc_homie5::client::{
     run_homie_client, FlushTimeout, HomieClientEvent, HomieClientHandle, MqttClientConfig, PendingPublishObserver,
 };
@@ -88,10 +88,10 @@ pub struct VirtualDeviceManager {
     children_dirty: bool,
     /// Runtime state of materialized group devices, keyed by the spec's
     /// config item hash.
-    groups: Arc<RwLock<HashMap<ConfigItemHash, GroupRuntime>>>,
+    groups: Arc<RwLock<HashMap<ItemHash, GroupRuntime>>>,
     /// Reverse index source device -> group devices it is a member of
     /// (O(1) rebuild trigger lookup on discovery changes).
-    member_index: Arc<RwLock<HashMap<DeviceRef, HashSet<ConfigItemHash>>>>,
+    member_index: Arc<RwLock<HashMap<DeviceRef, HashSet<ItemHash>>>>,
 }
 
 impl VirtualDeviceManager {
@@ -156,7 +156,7 @@ impl VirtualDeviceManager {
         ))
     }
 
-    pub async fn add_device(&mut self, hash: ConfigItemHash, spec: VirtualDeviceSpec) -> Result<DeviceRef> {
+    pub async fn add_device(&mut self, hash: ItemHash, spec: VirtualDeviceSpec) -> Result<DeviceRef> {
         // Group devices are materialized first: the structure is derived from
         // the discovered member descriptions and the expanded spec then runs
         // through the unchanged creation path below. The group runtime is
@@ -226,7 +226,7 @@ impl VirtualDeviceManager {
         Ok(vdev_ref)
     }
 
-    pub async fn remove_device(&mut self, hash: ConfigItemHash) -> Result<Option<VirtualDevice>> {
+    pub async fn remove_device(&mut self, hash: ItemHash) -> Result<Option<VirtualDevice>> {
         // Unconditionally drop any group runtime for this spec: the device
         // itself may be missing from the map (e.g. a failed rebuild), but the
         // group bookkeeping must not outlive the config item.
@@ -261,7 +261,7 @@ impl VirtualDeviceManager {
     /// Register the runtime state of a successfully added group device:
     /// stores the original spec + structure hash and indexes its members for
     /// O(1) rebuild trigger lookup.
-    async fn register_group(&self, hash: ConfigItemHash, original_spec: VirtualDeviceSpec, structure_hash: u64) {
+    async fn register_group(&self, hash: ItemHash, original_spec: VirtualDeviceSpec, structure_hash: u64) {
         let Some(group) = original_spec.group.as_ref() else {
             return;
         };
@@ -289,7 +289,7 @@ impl VirtualDeviceManager {
 
     /// Drop the group runtime and member index entries for a spec. No-op for
     /// non-group specs (nothing registered under the hash).
-    async fn unregister_group(&self, hash: ConfigItemHash) {
+    async fn unregister_group(&self, hash: ItemHash) {
         let Some(runtime) = self.groups.write().await.remove(&hash) else {
             return;
         };
@@ -346,7 +346,7 @@ impl VirtualDeviceManager {
     /// Returns the device ref of the rebuilt device so the caller can
     /// re-notify rule queries with the new description, or `None` when
     /// nothing changed (or the group is no longer registered).
-    pub async fn rebuild_group_device(&self, hash: ConfigItemHash) -> Result<Option<DeviceRef>> {
+    pub async fn rebuild_group_device(&self, hash: ItemHash) -> Result<Option<DeviceRef>> {
         let (original_spec, old_hash) = {
             let groups = self.groups.read().await;
             let Some(runtime) = groups.get(&hash) else {
@@ -625,7 +625,7 @@ impl VirtualDeviceManager {
         self.files.remove_file(hash).await;
     }
 
-    pub async fn get_cfg_filename(&self, hash: &ConfigItemHash) -> Option<String> {
+    pub async fn get_cfg_filename(&self, hash: &ItemHash) -> Option<String> {
         self.files.get_file_name(&hash.filename_hash()).await
     }
 }
@@ -687,7 +687,7 @@ impl VirtualDeviceManagerProxy {
 /// Add `hash` to the member index entry of every member device.
 ///
 /// Generic over the group key so the pure index logic is unit-testable
-/// ([`ConfigItemHash`] has no public constructor).
+/// ([`ItemHash`] has no public constructor).
 fn index_group_members<H: Copy + Eq + std::hash::Hash>(
     member_index: &mut HashMap<DeviceRef, HashSet<H>>,
     hash: H,

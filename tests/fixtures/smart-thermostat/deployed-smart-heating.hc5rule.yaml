@@ -1,0 +1,84 @@
+---
+# Smart thermostats (smart_heating.lua, smart-heating.v5device.yaml): a virtual device per room
+# adds week schedule, window-open, boost and room-sensor control to a thermostat without them.
+# Office: virtual bue-thermostat drives the Matter TRV matter-5489-227-5fdb7d425dda566c.
+#
+# A /set on a virtual thermostat (dashboard, season program): already stored, apply it now.
+name: smart-heating-set
+triggers:
+  - properties:
+      - bue-thermostat/thermostat/set-temperature
+      - bue-thermostat/thermostat/mode
+      - bue-thermostat/thermostat/boost-state
+      - bue-thermostat/thermostat-schedule/active-profile
+      - bue-thermostat/thermostat-schedule/profile-1
+      - bue-thermostat/thermostat-schedule/profile-2
+      - bue-thermostat/thermostat-schedule/profile-3
+      - bue-thermostat/thermostat-settings/window-open-temperature
+    set_value:
+      operator: matchAlways
+actions:
+  - type: run
+    script: |-
+      require("smart_heating").on_set(event)
+---
+# Window open: window temperature; closed: back to the target, optionally with a boost.
+name: smart-heating-window
+triggers:
+  - properties:
+      - oeq0706187/contact/state
+    changed: {}
+actions:
+  - type: run
+    script: |-
+      require("smart_heating").on_window(event)
+---
+# A set temperature the automation did not write came from the thermostat knob.
+name: smart-heating-thermostat-setpoint
+triggers:
+  - properties:
+      - matter-5489-227-5fdb7d425dda566c/thermostat/set-temperature
+    changed: {}
+actions:
+  - type: run
+    script: |-
+      require("smart_heating").on_thermostat_setpoint(event)
+---
+# Room sensor or thermostat temperature: recompute the shift (written at most every 10 minutes).
+name: smart-heating-temperature
+triggers:
+  - properties:
+      - leq1258226/climate/temperature
+      - matter-5489-227-5fdb7d425dda566c/climate/temperature
+    changed: {}
+actions:
+  - type: run
+    script: |-
+      require("smart_heating").on_temperature(event)
+---
+# Every minute: schedule points, boost end, and a safety net after restarts or missed events.
+name: smart-heating-tick
+triggers:
+  - schedule: "0 * * * * * *"
+actions:
+  - type: run
+    script: |-
+      require("smart_heating").update_all()
+---
+# Office heating only while working from home: when Thomas leaves, the office thermostat goes to
+# manual 17 C. One way only; switch it back to auto in the dashboard when working from home.
+# Temperature first, so the switch to manual never briefly writes the schedule value.
+name: bue-heating-manual-when-away
+triggers:
+  - properties:
+      - h5-presence/thomas/home
+    changed:
+      from: { Bool: true }
+      to: { Bool: false }
+actions:
+  - type: set
+    target: bue-thermostat/thermostat/set-temperature
+    value: { Float: 17.0 }
+  - type: set
+    target: bue-thermostat/thermostat/mode
+    value: { Enum: "manual" }

@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod cfg_files_tracker;
+pub mod config_item;
 pub mod cron_manager;
 pub mod device_manager;
 pub mod homie;
@@ -10,6 +11,7 @@ pub mod panic_guard;
 pub mod rule_manager;
 pub mod rules;
 pub mod solar_events;
+pub mod templates;
 pub mod timer_manager;
 pub mod unwrap_or_exit;
 pub mod utils;

@@ -20,6 +20,7 @@ use crate::settings::{
 use config_watcher::{backend, config_item_watcher::run_config_item_watcher, Tokenizer, WatcherError, YamlTokenizer};
 use hc_homie5::client::HomieClientHandle;
 use hc_homie5::logging::{truncate, Outage, PAYLOAD_MAX};
+use hc_homie5::util::DebouncedSender;
 use hc_homie5_automation::{
     cron_manager::CronManager,
     device_manager::DeviceManager,
@@ -27,9 +28,16 @@ use hc_homie5_automation::{
     rule_manager::RuleManager,
     rules::{parse_rule, Rule},
     solar_events::{run_solar_event_task, SolarEventHandle},
+    templates::{
+        parse_config_document, ConfigDocument, TemplateStage, RULE_VERBATIM_KEYS, VIRTUAL_DEVICE_VERBATIM_KEYS,
+    },
     timer_manager::TimerManager,
     virtual_devices::{VirtualDeviceManager, VirtualDeviceSpec},
 };
+/// Quiet period before template-using documents are (re-)expanded: collapses a config file with
+/// many documents, a document edited as remove + add, and discovery bursts into one expansion.
+const TEMPLATE_EXPANSION_DEBOUNCE: Duration = Duration::from_millis(500);
+
 /// Deserializes one configuration document; a panic while deserializing is reported as an error
 /// for that document instead of terminating the controller.
 fn parse_document<T: serde::de::DeserializeOwned>(doc: &str) -> std::result::Result<T, serde_yaml_ng::Error> {
@@ -145,20 +153,25 @@ pub async fn initialize_app(
     // Setup configuration watchers
     // =====================================================
 
+    // Template documents and documents using templates are classified here and expanded in the
+    // event loop; all other documents deserialize as before.
     let deserialize_rules = |doc: &str| {
-        contain_sync(|| parse_rule(doc))
-            .unwrap_or_else(|panic| Err(<serde_yaml_ng::Error as serde::de::Error>::custom(panic)))
+        contain_sync(|| parse_config_document(doc, RULE_VERBATIM_KEYS, parse_rule))
+            .unwrap_or_else(|panic| Err(panic.to_string()))
     };
 
-    let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<Rule, _>(
+    let (rules_watcher_handle, rules_receiver) = run_config_item_watcher::<ConfigDocument<Rule>, _>(
         || run_config_backend(settings, &settings.app.rules_config, "Rules", "rules", "*.yaml", "-cfg-r"),
         &YamlTokenizer,
         deserialize_rules,
     )?;
 
-    let deserialize_virtual_devices = |doc: &str| parse_document::<VirtualDeviceSpec>(doc);
+    let deserialize_virtual_devices = |doc: &str| {
+        contain_sync(|| parse_config_document(doc, VIRTUAL_DEVICE_VERBATIM_KEYS, parse_document::<VirtualDeviceSpec>))
+            .unwrap_or_else(|panic| Err(panic.to_string()))
+    };
 
-    let (vdevices_watcher_handle, vdevices_receiver) = run_config_item_watcher::<VirtualDeviceSpec, _>(
+    let (vdevices_watcher_handle, vdevices_receiver) = run_config_item_watcher::<ConfigDocument<VirtualDeviceSpec>, _>(
         || {
             run_config_backend(
                 settings,
@@ -223,6 +236,8 @@ pub async fn initialize_app(
         ),
     };
 
+    let template_expansion = DebouncedSender::new(TEMPLATE_EXPANSION_DEBOUNCE, app_event_sender.clone());
+
     // Setup EventMultiPlexer
     // =====================================================
     let event_multiplexer = EventMultiPlexer::new(
@@ -275,6 +290,9 @@ pub async fn initialize_app(
             virtual_devices_outage: Outage::new(),
             mqtt_outage: Outage::new(),
             watchers_started: false,
+            rule_templates: TemplateStage::new(RULE_VERBATIM_KEYS),
+            vdevice_templates: TemplateStage::new(VIRTUAL_DEVICE_VERBATIM_KEYS),
+            template_expansion,
         },
     ))
 }

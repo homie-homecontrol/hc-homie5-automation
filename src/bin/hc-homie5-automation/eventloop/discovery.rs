@@ -54,6 +54,7 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                         state.vdm.source_device_changed(device_ref).await;
 
                         device_queries_changed(device_ref, state).await?;
+                        state.devices_changed_for_templates().await;
                     }
                     // device removed
                     DiscoveryAction::DeviceRemoved(device) => {
@@ -70,6 +71,7 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
                         state
                             .rules
                             .queries_device_removed(&device.ident, device.description.as_ref());
+                        state.devices_changed_for_templates().await;
                     }
                     DiscoveryAction::StateChanged { device, from, to } => {
                         tracing::debug!(device = %device.device_id(), from = %from, to = %to, "device state changed");
@@ -92,6 +94,9 @@ pub async fn handle_discovery_client_event(event: HomieClientEvent, state: &mut 
             for device_ref in changed.iter() {
                 tracing::debug!(device = %device_ref.device_id(), "device meta overlay changed");
                 device_queries_changed(device_ref, state).await?;
+            }
+            if !changed.is_empty() {
+                state.devices_changed_for_templates().await;
             }
         }
         HomieClientEvent::Stop => {

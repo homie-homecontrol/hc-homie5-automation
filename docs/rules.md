@@ -855,3 +855,9 @@ A rule whose actions cause its own triggers to fire again loops endlessly, for e
 
 - **Load-time warning:** when a rule is loaded, the controller logs a warning naming the rule, the action topic and the trigger topic filter if one of its `mqtt` actions publishes to a topic matched by one of its own MQTT triggers. Only topics written in the rule are checked; publishes from Lua scripts (`utils:mqtt_publish`), loops across several rules and property loops (set → changed → set) are not detected at load time.
 - **Runtime rate limit:** each rule may fire at most `HCACTL_RULE_MAX_FIRINGS_PER_SEC` times per second (default `20`, `0` disables the limit, see [setup_config.md](setup_config.md)). Firings beyond the limit within the same second are skipped, and one warning per second names the rule. The limit applies to every trigger type, so it also stops loops through Lua scripts, other rules or properties.
+
+# Templates
+
+Rules can be written once as a template (`*.tpl.yaml` in the rules folder) and instantiated with
+`use:`/`with:`, or generated per device with `for_each`, also inside trigger, `properties`, action
+and `targets` lists. Lua `script:` values are never templated. See [templates.md](templates.md).

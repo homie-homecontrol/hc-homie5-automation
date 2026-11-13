@@ -956,12 +956,14 @@ dependencies = [
  "hc-homie5-macros",
  "hc-homie5-smarthome",
  "homie5",
+ "minijinja",
  "paste",
  "rand 0.10.1",
  "regex",
  "rumqttc",
  "schemars",
  "serde",
+ "serde_yaml_ng",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -1877,6 +1879,16 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "minijinja"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "509eeb2603a84eccabb4d75f6ec8ba23b46bbf441aaeb863d6b83a5887fd51e4"
+dependencies = [
+ "indexmap",
+ "serde",
+]
 
 [[package]]
 name = "miniz_oxide"

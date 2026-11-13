@@ -1,3 +1,4 @@
+use crate::config_item::ItemHash;
 use crate::{
     cron_manager::CronManager,
     device_manager::DeviceManager,
@@ -12,7 +13,6 @@ use crate::{
     virtual_devices::VirtualDevice,
 };
 use color_eyre::eyre::Result;
-use config_watcher::ConfigItemHash;
 use hc_homie5::model::Device;
 use homie5::{device_description::HomieDeviceDescription, DeviceRef};
 use std::{
@@ -24,15 +24,15 @@ use std::{
 
 #[derive(Default)]
 pub struct RuleManager {
-    rules: HashMap<ConfigItemHash, Rule>,
+    rules: HashMap<ItemHash, Rule>,
     files: HashMap<u64, String>,
     /// Per-rule firing rate limit; interior mutability because rules fire through `&RuleManager`
     /// on the single-threaded event loop.
-    firing_limiter: RefCell<FiringLimiter<ConfigItemHash>>,
+    firing_limiter: RefCell<FiringLimiter<ItemHash>>,
 }
 
 impl Deref for RuleManager {
-    type Target = HashMap<ConfigItemHash, Rule>;
+    type Target = HashMap<ItemHash, Rule>;
 
     fn deref(&self) -> &Self::Target {
         &self.rules
@@ -59,7 +59,7 @@ impl RuleManager {
     }
 
     /// Records a firing of rule `hash` and decides whether it is within the rate limit.
-    pub fn check_firing(&self, hash: ConfigItemHash, now: Instant) -> FiringDecision {
+    pub fn check_firing(&self, hash: ItemHash, now: Instant) -> FiringDecision {
         self.firing_limiter.borrow_mut().check(hash, now)
     }
 
@@ -71,14 +71,14 @@ impl RuleManager {
         self.files.remove(&hash);
     }
 
-    pub fn get_filename(&self, hash: ConfigItemHash) -> Option<&String> {
+    pub fn get_filename(&self, hash: ItemHash) -> Option<&String> {
         self.files.get(&hash.filename_hash())
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn add_rule(
         &mut self,
-        hash: ConfigItemHash,
+        hash: ItemHash,
         rule: Rule,
         cron: &CronManager,
         mqtt_client: &ManagedMqttClient,
@@ -104,7 +104,7 @@ impl RuleManager {
 
     pub async fn remove_rule(
         &mut self,
-        hash: ConfigItemHash,
+        hash: ItemHash,
         cron: &CronManager,
         mqtt_client: &ManagedMqttClient,
         solar_events: &SolarEventManager,

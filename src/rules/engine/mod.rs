@@ -22,7 +22,7 @@ pub use solar::*;
 pub use timer::*;
 pub use virtual_devices::*;
 
-use config_watcher::ConfigItemHash;
+use crate::config_item::ItemHash;
 use hc_homie5::store::DeviceStore;
 
 use crate::{
@@ -43,7 +43,7 @@ fn matching_rules<'r>(
     rules: &'r RuleManager,
     devices: &DeviceStore,
     matches: impl Fn(&RuleTrigger, &DeviceStore) -> bool,
-) -> Vec<(ConfigItemHash, &'r Rule)> {
+) -> Vec<(ItemHash, &'r Rule)> {
     rules
         .iter()
         .filter(|(_, rule)| rule.triggers.iter().any(|trigger| matches(trigger, devices)))

@@ -1,11 +1,11 @@
+use crate::config_item::ItemHash;
 use crate::timer_manager::TimerManager;
-use config_watcher::ConfigItemHash;
 use mlua::UserData;
 use std::time::Duration;
 
 pub struct LuaTimer {
     pub timers: TimerManager,
-    pub rule_hash: ConfigItemHash,
+    pub rule_hash: ItemHash,
     /// Name of the rule running the script, for logs.
     pub rule: String,
 }

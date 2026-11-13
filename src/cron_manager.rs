@@ -1,5 +1,5 @@
+use crate::config_item::ItemHash;
 use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
-use config_watcher::ConfigItemHash;
 use cron::Schedule;
 use std::{
     collections::HashMap,
@@ -19,7 +19,7 @@ use crate::panic_guard::contain;
 pub struct ScheduledCron {
     #[allow(dead_code)]
     pub id: String,
-    pub rule_hash: ConfigItemHash,
+    pub rule_hash: ItemHash,
     pub handle: JoinHandle<()>,
 }
 
@@ -27,7 +27,7 @@ pub struct ScheduledCron {
 pub struct CronEvent {
     #[allow(dead_code)]
     pub id: String,
-    pub rule_hash: ConfigItemHash,
+    pub rule_hash: ItemHash,
     pub trigger_index: usize,
 }
 
@@ -50,7 +50,7 @@ impl CronManager {
     }
 
     /// Creates a new timer
-    pub fn schedule_cron(&self, rule_hash: ConfigItemHash, trigger_index: usize, cron_schedule: &str) {
+    pub fn schedule_cron(&self, rule_hash: ItemHash, trigger_index: usize, cron_schedule: &str) {
         let id = format!("{}-{}", rule_hash, trigger_index);
         // cancel existing timer for the id if it exists
         self.cancel_cron_schedule(&id);
@@ -86,7 +86,7 @@ impl CronManager {
         }
     }
 
-    pub fn remove_cron_schedule_for_rule(&self, rule_hash: ConfigItemHash) {
+    pub fn remove_cron_schedule_for_rule(&self, rule_hash: ItemHash) {
         let mut cron_schedules = self.cron_schedules.lock().unwrap_or_else(PoisonError::into_inner);
         cron_schedules.retain(|id, schedule| {
             if schedule.rule_hash == rule_hash {
@@ -112,7 +112,7 @@ impl CronManager {
 async fn run_cron_schedule(
     cron_schedule: String,
     id: String,
-    rule_hash: ConfigItemHash,
+    rule_hash: ItemHash,
     trigger_index: usize,
     sender: Sender<CronEvent>,
 ) {

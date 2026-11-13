@@ -25,6 +25,7 @@ The documentation is split up into several parts (see the `docs` folder):
 3.  [Rules](./docs/rules.md)
 4.  [Lua Runtime](./docs/lua_runtime.md)
 5.  [Virtual Devices](./docs/virtual_devices.md)
+6.  [Templates](./docs/templates.md) for rules and virtual devices
 
 ## Contributing
 

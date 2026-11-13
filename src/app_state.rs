@@ -1,15 +1,17 @@
-use config_watcher::{ConfigItemHash, ConfigItemWatcherHandle};
+use config_watcher::ConfigItemWatcherHandle;
 pub use hc_homie5::connection::{ConnectionEvent, ConnectionState};
 use hc_homie5::controller::MetaOverlayHandler;
 use hc_homie5::logging::{chain, Outage};
+use hc_homie5::util::DebouncedSender;
 use homie5::{DeviceRef, PropertyRef};
 use simple_kv_store::KeyValueStore;
 use tokio::sync::mpsc::Sender;
 
 use crate::{
-    cron_manager::CronManager, device_manager::DeviceManager, lua_runtime::LuaModuleManager, meta::MetaManager,
-    mqtt_client::ManagedMqttClient, rule_manager::RuleManager, rules::RuleContext, solar_events::SolarEventManager,
-    timer_manager::TimerManager, virtual_devices::VirtualDeviceManager,
+    config_item::ItemHash, cron_manager::CronManager, device_manager::DeviceManager, lua_runtime::LuaModuleManager,
+    meta::MetaManager, mqtt_client::ManagedMqttClient, rule_manager::RuleManager, rules::RuleContext,
+    solar_events::SolarEventManager, templates::TemplateStage, timer_manager::TimerManager,
+    virtual_devices::VirtualDeviceManager,
 };
 
 #[derive(Debug, Clone)]
@@ -23,7 +25,10 @@ pub enum AppEvent {
     FlushControllerChildren,
     /// Rebuild a materialized group device after member discovery changes
     /// (debounced per group, see [`VirtualDeviceManager::rebuild_group_device`]).
-    RebuildGroupDevice(ConfigItemHash),
+    RebuildGroupDevice(ItemHash),
+    /// Re-expand template-using rule and virtual-device documents after a template, source
+    /// document, device or `$meta` change (debounced, see [`AppState::schedule_template_expansion`]).
+    ExpandTemplates,
 
     Exit,
 }
@@ -61,6 +66,12 @@ pub struct AppState {
     pub mqtt_outage: Outage,
     /// Set once the config watchers were started for the first time.
     pub watchers_started: bool,
+    /// Templates and template-using documents of the rules config.
+    pub rule_templates: TemplateStage,
+    /// Templates and template-using documents of the virtual-devices config.
+    pub vdevice_templates: TemplateStage,
+    /// Debouncer emitting [`AppEvent::ExpandTemplates`].
+    pub template_expansion: DebouncedSender<AppEvent>,
 }
 
 impl AppState {
@@ -75,6 +86,20 @@ impl AppState {
             lmm: &self.lua_module_manager,
             lua_script_timeout: self.lua_script_timeout,
             lua_memory_limit: self.lua_memory_limit,
+        }
+    }
+
+    /// Requests a re-expansion of all template-using documents; bursts (a file with many
+    /// documents, a template edited as remove + add) collapse into one expansion.
+    pub async fn schedule_template_expansion(&self) {
+        self.template_expansion.send(AppEvent::ExpandTemplates).await;
+    }
+
+    /// Requests a re-expansion after a device appeared, changed its description or `$meta`, or
+    /// disappeared, when a `for_each` depends on the devices.
+    pub async fn devices_changed_for_templates(&self) {
+        if self.rule_templates.uses_devices() || self.vdevice_templates.uses_devices() {
+            self.schedule_template_expansion().await;
         }
     }
 
