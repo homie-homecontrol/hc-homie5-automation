@@ -3,7 +3,7 @@ use hc_homie5::query::{MetaAnnotations, QueryDefinition};
 use hc_homie5::store::DeviceStore;
 use hc_homie5::value::ValueMappingIO;
 use homie5::{device_description::HomieDeviceDescription, DeviceRef, HomieValue, PropertyRef};
-use std::collections::{hash_map::Values, HashMap};
+use std::collections::{hash_map::Values, HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct QueryCompoundMember {
@@ -36,7 +36,7 @@ impl QueryCompoundMember {
         }
     }
     /// Re-evaluates the query for a device after its description or `$meta` overlay changed; the
-    /// overlay is read from `devices`.
+    /// overlay is read from `devices`. Returns whether members were added or removed.
     pub fn update_compound_members(
         &mut self,
         device_ref: &DeviceRef,
@@ -44,23 +44,27 @@ impl QueryCompoundMember {
         devices: &DeviceStore,
         parent_mapping: Option<&ValueMappingIO<HomieValue, HomieValue>>,
     ) -> bool {
-        let mut changed = false;
-        self.prop_compound_members.retain(|k, _| {
-            if k.device_ref() == device_ref {
-                changed = true;
-                return false;
-            }
-            true
-        });
         let meta = devices
             .get_device(device_ref)
             .map(|device| device as &dyn MetaAnnotations);
         let props = self
             .query
             .match_query(device_ref.homie_domain(), device_ref.device_id(), desc, meta);
+
+        let previous: HashSet<PropertyRef> = self
+            .prop_compound_members
+            .keys()
+            .filter(|prop| prop.device_ref() == device_ref)
+            .cloned()
+            .collect();
+        let changed = previous.len() != props.len() || props.iter().any(|prop| !previous.contains(prop));
+
+        // members are rebuilt even when the set is unchanged, so description changes such as
+        // settable/retained are picked up
+        self.prop_compound_members
+            .retain(|prop, _| prop.device_ref() != device_ref);
         for prop in props.into_iter() {
             let m = PropertyCompoundMember::new(&prop, self.mapping.clone(), devices, parent_mapping);
-            changed = true;
             self.prop_compound_members.insert(prop, m);
         }
 
@@ -164,5 +168,33 @@ mod tests {
         let desc = devices.get_device(&window).unwrap().description.clone().unwrap();
         assert!(qcm.update_compound_members(&window, &desc, &devices, None));
         assert_eq!(members(&qcm), vec![door_state]);
+    }
+
+    #[test]
+    fn update_reports_change_only_when_members_change() {
+        let mut devices = DeviceStore::new();
+        let window = add_contact_device(&mut devices, "window");
+        let door = add_contact_device(&mut devices, "door");
+        set_tags(&mut devices, &window, &["window"]);
+        let mut qcm = QueryCompoundMember::new(query(), None, &devices, None);
+        let desc = |devices: &DeviceStore, device_ref: &DeviceRef| {
+            devices.get_device(device_ref).unwrap().description.clone().unwrap()
+        };
+
+        // re-evaluation without a relevant change: a matched and an unmatched device
+        assert!(!qcm.update_compound_members(&window, &desc(&devices, &window), &devices, None));
+        assert!(!qcm.update_compound_members(&door, &desc(&devices, &door), &devices, None));
+        set_tags(&mut devices, &window, &["window", "sensor"]);
+        assert!(!qcm.update_compound_members(&window, &desc(&devices, &window), &devices, None));
+
+        // added and removed members
+        set_tags(&mut devices, &door, &["window"]);
+        assert!(qcm.update_compound_members(&door, &desc(&devices, &door), &devices, None));
+        devices
+            .get_device_mut(&door)
+            .unwrap()
+            .remove_meta_overlay(&id("manual"));
+        assert!(qcm.update_compound_members(&door, &desc(&devices, &door), &devices, None));
+        assert_eq!(members(&qcm), vec![PropertyRef::from_str("homie/window/contact/state").unwrap()]);
     }
 }

@@ -227,10 +227,11 @@ impl VirtualDevice {
         desc: &HomieDeviceDescription,
         devices: &DeviceStore,
     ) -> Result<bool> {
-        for (_, vprop) in self.properties.iter_mut() {
-            vprop.update_compound_members(device_ref, desc, devices).await?;
+        let mut changed = false;
+        for vprop in self.properties.values_mut() {
+            changed |= vprop.update_compound_members(device_ref, desc, devices).await?;
         }
-        Ok(true)
+        Ok(changed)
     }
 
     pub async fn update_member_value_prop(
