@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
     time::Duration,
 };
@@ -24,8 +24,13 @@ use crate::{
 use super::{
     group_materializer::{materialize, rematerialize},
     property_indexer::PropertyIndexer,
+    removal::RemovedDevice,
     VirtualDevice, VirtualDeviceSpec,
 };
+
+/// Time a removed virtual device's retained topics are kept, so a config change that re-adds
+/// the same ID (file edit, template re-expansion) keeps its values; see [`super::removal`].
+const REMOVED_DEVICE_GRACE: Duration = Duration::from_secs(2);
 
 /// Default debounce for structure rebuilds of a group device when the spec
 /// does not set `group.rebuild_debounce`.
@@ -92,6 +97,10 @@ pub struct VirtualDeviceManager {
     /// Reverse index source device -> group devices it is a member of
     /// (O(1) rebuild trigger lookup on discovery changes).
     member_index: Arc<RwLock<HashMap<DeviceRef, HashSet<ItemHash>>>>,
+    /// Removed devices waiting for [`VirtualDeviceManager::delete_removed_devices`].
+    removed_devices: Arc<RwLock<HashMap<DeviceRef, RemovedDevice>>>,
+    /// Debouncer emitting [`AppEvent::DeleteRemovedVirtualDevices`].
+    removal_flush: DebouncedSender<AppEvent>,
 }
 
 impl VirtualDeviceManager {
@@ -131,6 +140,8 @@ impl VirtualDeviceManager {
             .filter(|d| !d.is_zero())
             .map(|debounce| DebouncedSender::new(debounce, app_event_sender.clone()));
 
+        let removal_flush = DebouncedSender::new(REMOVED_DEVICE_GRACE, app_event_sender.clone());
+
         Ok((
             Self {
                 status: HomieDeviceStatus::Init,
@@ -150,6 +161,8 @@ impl VirtualDeviceManager {
                 children_dirty: false,
                 groups: Arc::new(RwLock::new(HashMap::new())),
                 member_index: Arc::new(RwLock::new(HashMap::new())),
+                removed_devices: Arc::new(RwLock::new(HashMap::new())),
+                removal_flush,
             },
             device_client_handle,
             homie_event_receiver,
@@ -250,12 +263,56 @@ impl VirtualDeviceManager {
                 index.remove_indexes_for_virtual_device(&id);
             }
             drop(vdevices);
+            self.stage_removal(&dev).await;
             self.remove_child_device(dev.device_ref().device_id()).await?;
             return Ok(Some(dev));
         }
 
         tracing::debug!(config_item = %hash, "virtual device to remove not found");
         Ok(None)
+    }
+
+    /// Remembers a removed device; [`AppEvent::DeleteRemovedVirtualDevices`] follows after
+    /// [`REMOVED_DEVICE_GRACE`] without further removals.
+    async fn stage_removal(&self, dev: &VirtualDevice) {
+        let removed =
+            RemovedDevice::new(dev.homie_proto().clone(), dev.description().clone(), dev.alerts.keys().cloned());
+        match self.removed_devices.write().await.entry(dev.device_ref().clone()) {
+            Entry::Occupied(mut entry) => entry.get_mut().merge(removed),
+            Entry::Vacant(entry) => {
+                entry.insert(removed);
+            }
+        }
+        self.removal_flush.send(AppEvent::DeleteRemovedVirtualDevices).await;
+    }
+
+    /// Cleans up after removed virtual devices once the config change is applied: a device whose
+    /// ID is gone is deleted from the broker (alerts, `$state`, `$description`, retained values
+    /// and targets); a device that exists again keeps its values and only loses the retained
+    /// topics and alerts it no longer has.
+    pub async fn delete_removed_devices(&self) -> Result<()> {
+        let removed = std::mem::take(&mut *self.removed_devices.write().await);
+        let vdevices = self.devices.read().await;
+        for (device_ref, removed) in removed {
+            let current = vdevices.get(&device_ref);
+            let publishes = match removed.cleanup_publishes(current.map(|d| (d.description(), &d.alerts))) {
+                Ok(publishes) => publishes,
+                Err(err) => {
+                    tracing::warn!(vdevice = %device_ref.device_id(), error = %err, "cannot delete removed virtual device");
+                    continue;
+                }
+            };
+            let cleared = publishes.len();
+            for publish in publishes {
+                self.homie_client.homie_publish(publish).await?;
+            }
+            if current.is_none() {
+                tracing::info!(vdevice = %device_ref.device_id(), "removed virtual device deleted from the broker");
+            } else if cleared > 0 {
+                tracing::debug!(vdevice = %device_ref.device_id(), cleared, "obsolete topics of a changed virtual device cleared");
+            }
+        }
+        Ok(())
     }
 
     /// Register the runtime state of a successfully added group device:
@@ -377,6 +434,8 @@ impl VirtualDeviceManager {
                 dev.disconnect_device().await?;
                 let mut index = self.index.write().await;
                 index.remove_indexes_for_virtual_device(&device_ref);
+                drop(index);
+                self.stage_removal(&dev).await;
             }
         }
 

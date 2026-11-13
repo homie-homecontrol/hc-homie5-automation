@@ -29,6 +29,9 @@ pub enum AppEvent {
     /// Re-expand template-using rule and virtual-device documents after a template, source
     /// document, device or `$meta` change (debounced, see [`AppState::schedule_template_expansion`]).
     ExpandTemplates,
+    /// Delete virtual devices removed from the config from the broker, unless their ID exists
+    /// again (debounced, see [`VirtualDeviceManager::delete_removed_devices`]).
+    DeleteRemovedVirtualDevices,
 
     Exit,
 }

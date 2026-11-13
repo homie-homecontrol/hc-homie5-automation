@@ -47,6 +47,9 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
         AppEvent::ExpandTemplates => {
             expand_templates(state).await?;
         }
+        AppEvent::DeleteRemovedVirtualDevices => {
+            state.vdm.delete_removed_devices().await?;
+        }
         AppEvent::Exit => {
             tracing::info!("stopping");
             // Stop configuration watchers
@@ -60,6 +63,8 @@ pub async fn handle_app_event(event: AppEvent, state: &mut AppState) -> Result<b
             // publish any staged (debounced) children changes so the retained
             // controller description is complete before disconnecting
             state.vdm.flush_children().await?;
+            // devices removed from the config shortly before the shutdown are deleted now
+            state.vdm.delete_removed_devices().await?;
             state.vdm.disconnect_virtual_devices().await?;
             state.vdm.disconnect_device().await?;
 
