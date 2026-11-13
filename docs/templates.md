@@ -39,6 +39,7 @@ the same folder: rule templates by rules, virtual-device templates by virtual de
 | `"{{ expr }}"` | any string value | the value of the expression; a string with exactly one placeholder yields the typed value (number, bool, list), other text renders a string |
 | `use: name` + `with: {..}` | whole document, any mapping, any list item | replaced by the template body; a list body is spliced into the surrounding list |
 | `for_each: { query, sort_by }` + `use:`/`with:` or `item:` | whole document, any list item | one expansion per matching device, `item` is the device |
+| `for_each: { items, sort_by }` + `use:`/`with:` or `item:` | whole document, any list item | one expansion per list element, `item` is the element |
 | `when: expr` | whole document, any list item | the item is kept only if the expression is true |
 
 Lists include node and property lists of virtual devices, compound `members`, trigger lists,
@@ -62,6 +63,22 @@ with:
 ```
 
 ### for_each
+
+`for_each` takes exactly one source, `items` or `query`.
+
+`items` is a literal list or a single `"{{ expr }}"` returning a list. Each element (a scalar or a
+mapping) becomes `item`. Elements of a literal list are evaluated first, so they may contain
+expressions. The list order is kept unless `sort_by` is given (stable sort, missing values last).
+Missing keys can be handled with `{{ item.label | default(item.id) }}` or `item.label is defined`.
+
+```yaml
+triggers:
+  - properties:
+      - for_each:
+          items: [garden-light, terrace-light]
+        item: "homie/{{ item }}/switch/state"
+    changed: { to: { Bool: true } }
+```
 
 `query` is a [query](general_concepts.md) (device, node, property and `$meta` conditions); every
 discovered device with at least one matching property yields one element. `sort_by` is a field
